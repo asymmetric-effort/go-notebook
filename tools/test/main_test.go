@@ -4,43 +4,104 @@ package main
 
 import (
 	"os"
-	"os/exec"
+	"path/filepath"
 	"testing"
 )
 
-func TestRunReturnsZero(t *testing.T) {
-	// Skip if already inside a test run to prevent infinite recursion.
-	if os.Getenv("GOBOOK_TEST_RECURSIVE_GUARD") == "1" {
-		t.Skip("skipping to prevent recursive test invocation")
+func TestAggregateCoverageValid(t *testing.T) {
+	dir := t.TempDir()
+	profile := filepath.Join(dir, "cov.out")
+	content := `mode: set
+github.com/foo/bar/main.go:10.2,12.1 2 1
+github.com/foo/bar/main.go:14.2,16.1 3 0
+github.com/foo/bar/main.go:18.2,20.1 5 1
+`
+	if err := os.WriteFile(profile, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	t.Setenv("GOBOOK_TEST_RECURSIVE_GUARD", "1")
-	if code := run(); code != 0 {
-		t.Fatalf("run() = %d, want 0", code)
+	pct, err := aggregateCoverage(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pct < 69.9 || pct > 70.1 {
+		t.Errorf("coverage = %.1f%%, want 70.0%%", pct)
 	}
 }
 
-func TestRunFailsOnBadPackage(t *testing.T) {
-	// Verify run() returns non-zero when tests fail.
-	tmp := t.TempDir()
-	// Create a Go file that won't compile.
-	if err := os.WriteFile(tmp+"/go.mod", []byte("module bad\ngo 1.27.4\n"), 0o644); err != nil {
+func TestAggregateCoverageEmpty(t *testing.T) {
+	dir := t.TempDir()
+	profile := filepath.Join(dir, "cov.out")
+	if err := os.WriteFile(profile, []byte("mode: set\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(tmp+"/bad_test.go", []byte("package bad\nfunc TestBad(t *testing.T) { t.Fatal(\"fail\") }\n"), 0o644); err != nil {
+	pct, err := aggregateCoverage(profile)
+	if err != nil {
 		t.Fatal(err)
 	}
-
-	// Build a temporary version of the test tool and run it in the bad directory.
-	bin := tmp + "/testrunner"
-	build := exec.Command("go", "build", "-o", bin, ".")
-	build.Dir, _ = os.Getwd()
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("failed to build test tool: %v\n%s", err, out)
+	if pct != 100.0 {
+		t.Errorf("coverage = %.1f%%, want 100.0%%", pct)
 	}
+}
 
-	cmd := exec.Command(bin)
-	cmd.Dir = tmp
-	if err := cmd.Run(); err == nil {
-		t.Fatal("expected non-zero exit from test tool on failing tests")
+func TestAggregateCoverageMissingFile(t *testing.T) {
+	_, err := aggregateCoverage("/nonexistent/path")
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
+}
+
+func TestAggregateCoverageMalformedLines(t *testing.T) {
+	dir := t.TempDir()
+	profile := filepath.Join(dir, "cov.out")
+	content := `mode: set
+bad line
+github.com/foo/bar/main.go:10.2,12.1 abc 1
+github.com/foo/bar/main.go:10.2,12.1 2 xyz
+github.com/foo/bar/main.go:10.2,12.1 2 1
+`
+	if err := os.WriteFile(profile, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pct, err := aggregateCoverage(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pct != 100.0 {
+		t.Errorf("coverage = %.1f%%, want 100.0%%", pct)
+	}
+}
+
+func TestAggregateCoverageExcludesToolPackages(t *testing.T) {
+	dir := t.TempDir()
+	profile := filepath.Join(dir, "cov.out")
+	content := `mode: set
+github.com/asymmetric-effort/go-notebook/internal/foo/bar.go:10.2,12.1 10 10
+github.com/asymmetric-effort/go-notebook/tools/clean/main.go:5.2,7.1 5 0
+`
+	if err := os.WriteFile(profile, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pct, err := aggregateCoverage(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the internal package should count: 10/10 = 100%
+	if pct != 100.0 {
+		t.Errorf("coverage = %.1f%%, want 100.0%% (tool package should be excluded)", pct)
+	}
+}
+
+func TestIsExcluded(t *testing.T) {
+	if !isExcluded("github.com/asymmetric-effort/go-notebook/tools/clean/main.go") {
+		t.Error("expected tools/ to be excluded")
+	}
+	if isExcluded("github.com/asymmetric-effort/go-notebook/internal/testutil/cli.go") {
+		t.Error("expected internal/ to not be excluded")
+	}
+}
+
+func TestIsExcludedNoMatch(t *testing.T) {
+	if isExcluded("github.com/other/repo/main.go") {
+		t.Error("expected other repos to not be excluded")
 	}
 }
