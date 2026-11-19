@@ -39,5 +39,8 @@ node_modules/
 # Docker test environments
 .testenv/
 
+# Rust build artifacts
+typst-module/target/
+
 # Generated code
 /gen/

@@ -1,0 +1,20 @@
+[package]
+name = "typst-module"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[[bin]]
+name = "typst-module"
+path = "src/main.rs"
+
+[dependencies]
+typst-library = "0.13"
+comemo = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
