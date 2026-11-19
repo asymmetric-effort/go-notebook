@@ -1,0 +1,3 @@
+# govulncheck exceptions file
+# Each line is a vulnerability ID (GO-YYYY-NNNN) approved by the project owner.
+# Lines starting with # are comments.

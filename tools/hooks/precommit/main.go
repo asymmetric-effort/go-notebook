@@ -24,6 +24,7 @@ type check struct {
 func checks() []check {
 	return []check{
 		{name: "leakdetector", fn: runLeakDetector},
+		{name: "govulncheck", fn: runGovulncheck},
 		{name: "make lint", fn: runMakeLint},
 		{name: "make test", fn: runMakeTest},
 	}
@@ -36,6 +37,17 @@ func runLeakDetector() error {
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("leakdetector failed: %w", err)
+	}
+	return nil
+}
+
+// runGovulncheck runs the vulnerability checker with exceptions support.
+func runGovulncheck() error {
+	cmd := exec.Command("go", "run", "./tools/vulncheck")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("govulncheck failed: %w", err)
 	}
 	return nil
 }
