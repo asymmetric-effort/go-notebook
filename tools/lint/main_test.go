@@ -18,8 +18,8 @@ func TestGoFmtPasses(t *testing.T) {
 
 func TestLintersReturnsChecks(t *testing.T) {
 	checks := linters()
-	if len(checks) < 5 {
-		t.Fatalf("linters() returned %d checks, want at least 5", len(checks))
+	if len(checks) < 9 {
+		t.Fatalf("linters() returned %d checks, want at least 9", len(checks))
 	}
 }
 
@@ -29,15 +29,37 @@ func TestRunReturnsZero(t *testing.T) {
 	}
 }
 
+func TestMarkdownLintPasses(t *testing.T) {
+	if err := markdownLint(); err != nil {
+		t.Fatalf("markdownLint() = %v, want nil", err)
+	}
+}
+
+func TestCheckMakePasses(t *testing.T) {
+	if err := checkMake(); err != nil {
+		t.Fatalf("checkMake() = %v, want nil", err)
+	}
+}
+
+func TestYamlFmtNoFiles(t *testing.T) {
+	if err := yamlFmt(); err != nil {
+		t.Fatalf("yamlFmt() = %v, want nil", err)
+	}
+}
+
+func TestXmlLintNoFiles(t *testing.T) {
+	if err := xmlLint(); err != nil {
+		t.Fatalf("xmlLint() = %v, want nil", err)
+	}
+}
+
 func TestEsLintNoFiles(t *testing.T) {
-	// Should pass when no TS files exist.
 	if err := esLint(); err != nil {
 		t.Fatalf("esLint() = %v, want nil", err)
 	}
 }
 
 func TestTscCheckNoFiles(t *testing.T) {
-	// Should pass when no TS files exist.
 	if err := tscCheck(); err != nil {
 		t.Fatalf("tscCheck() = %v, want nil", err)
 	}
@@ -54,8 +76,23 @@ func TestModuleRoot(t *testing.T) {
 }
 
 func TestHasTypeScriptFilesNone(t *testing.T) {
-	// Currently no .ts files in the project.
 	if hasTypeScriptFiles() {
-		t.Error("hasTypeScriptFiles() = true, want false (no TS files yet)")
+		t.Error("hasTypeScriptFiles() = true, want false")
+	}
+}
+
+func TestFindFilesByExtMd(t *testing.T) {
+	root, _ := moduleRoot()
+	files := findFilesByExt(root, ".md", nil)
+	if len(files) == 0 {
+		t.Error("findFilesByExt(.md) returned no files")
+	}
+}
+
+func TestFindFilesByExtNoMatch(t *testing.T) {
+	root, _ := moduleRoot()
+	files := findFilesByExt(root, ".nonexistent", nil)
+	if len(files) != 0 {
+		t.Errorf("findFilesByExt(.nonexistent) = %d files, want 0", len(files))
 	}
 }

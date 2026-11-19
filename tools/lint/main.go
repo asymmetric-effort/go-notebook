@@ -23,6 +23,10 @@ func linters() []linter {
 		{name: "go vet", fn: goVet},
 		{name: "gofmt", fn: goFmt},
 		{name: "jsonlint", fn: jsonLint},
+		{name: "markdownlint", fn: markdownLint},
+		{name: "checkmake", fn: checkMake},
+		{name: "yamlfmt", fn: yamlFmt},
+		{name: "xmllint", fn: xmlLint},
 		{name: "eslint", fn: esLint},
 		{name: "tsc", fn: tscCheck},
 	}
@@ -81,6 +85,118 @@ func moduleRoot() (string, error) {
 		return "", fmt.Errorf("not inside a Go module")
 	}
 	return filepath.Dir(modFile), nil
+}
+
+// markdownLint runs markdownlint-cli2 on Markdown files.
+func markdownLint() error {
+	root, err := moduleRoot()
+	if err != nil {
+		return fmt.Errorf("find module root: %w", err)
+	}
+	files := findFilesByExt(root, ".md", nil)
+	if len(files) == 0 {
+		return nil
+	}
+	args := append([]string{"markdownlint-cli2"}, files...)
+	cmd := exec.Command("npx", args...)
+	cmd.Dir = root
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("markdownlint failed: %w", err)
+	}
+	return nil
+}
+
+// checkMake runs checkmake on Makefile and .mk files.
+func checkMake() error {
+	root, err := moduleRoot()
+	if err != nil {
+		return fmt.Errorf("find module root: %w", err)
+	}
+	mainMakefile := filepath.Join(root, "Makefile")
+	if _, err := os.Stat(mainMakefile); err == nil {
+		cmd := exec.Command("checkmake", mainMakefile)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("checkmake Makefile failed: %w", err)
+		}
+	}
+	return nil
+}
+
+// yamlFmt runs yamlfmt -lint on YAML files.
+func yamlFmt() error {
+	root, err := moduleRoot()
+	if err != nil {
+		return fmt.Errorf("find module root: %w", err)
+	}
+	files := findFilesByExt(root, ".yaml", []string{".yml"})
+	if len(files) == 0 {
+		return nil
+	}
+	args := append([]string{"-lint"}, files...)
+	cmd := exec.Command("yamlfmt", args...)
+	cmd.Dir = root
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("yamlfmt failed: %w", err)
+	}
+	return nil
+}
+
+// xmlLint runs xmllint on XML and SVG files.
+func xmlLint() error {
+	root, err := moduleRoot()
+	if err != nil {
+		return fmt.Errorf("find module root: %w", err)
+	}
+	files := findFilesByExt(root, ".xml", []string{".svg"})
+	if len(files) == 0 {
+		return nil
+	}
+	for _, f := range files {
+		cmd := exec.Command("xmllint", "--noout", f)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("xmllint %s failed: %w", f, err)
+		}
+	}
+	return nil
+}
+
+// findFilesByExt walks root and returns files matching the primary extension
+// or any of the extra extensions. It skips node_modules, .git and vendor.
+func findFilesByExt(root string, primary string, extra []string) []string {
+	var files []string
+	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		base := filepath.Base(path)
+		if info.IsDir() && (base == "node_modules" || base == ".git" || base == "vendor") {
+			return filepath.SkipDir
+		}
+		if info.IsDir() {
+			return nil
+		}
+		ext := filepath.Ext(path)
+		if ext == primary {
+			files = append(files, path)
+			return nil
+		}
+		for _, e := range extra {
+			if ext == e {
+				files = append(files, path)
+				return nil
+			}
+		}
+		return nil
+	})
+	return files
 }
 
 // hasTypeScriptFiles checks if any .ts files exist in the project.

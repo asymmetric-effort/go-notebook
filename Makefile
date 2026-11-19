@@ -1,6 +1,8 @@
-.PHONY: clean lint test build release hooks
+.PHONY: all clean lint test build release hooks
 
 -include Makefile.d/*.mk
+
+all: lint test build
 
 clean:
 	go run ./tools/clean
