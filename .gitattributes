@@ -1,0 +1,3 @@
+# Force LF line endings for all text files to ensure consistent formatting
+# across platforms. gofmt and other linters expect LF.
+* text=auto eol=lf
