@@ -8,8 +8,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
+
+// isWindows returns true if running on Windows.
+func isWindows() bool {
+	return runtime.GOOS == "windows"
+}
 
 // linter represents a single lint check.
 type linter struct {
@@ -130,10 +136,15 @@ func checkMake() error {
 	return nil
 }
 
-// yamlFmt runs yamlfmt -lint on YAML files. Skips if yamlfmt is not installed.
+// yamlFmt runs yamlfmt -lint on YAML files. Skips if yamlfmt is not installed
+// or on Windows where CRLF handling causes false positives.
 func yamlFmt() error {
 	if _, err := exec.LookPath("yamlfmt"); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: yamlfmt not found, skipping YAML lint\n")
+		return nil
+	}
+	if isWindows() {
+		fmt.Fprintf(os.Stderr, "warning: skipping yamlfmt on Windows (CRLF issues)\n")
 		return nil
 	}
 	root, err := moduleRoot()
