@@ -18,10 +18,25 @@ jobs:
       - name: Install leakdetector
         run: go install github.com/asymmetric-effort/leakdetector/cmd/leakdetector@latest
       - name: Run leakdetector
-        run: leakdetector --skip-history --format sarif --report results.sarif || true
+        run: |
+          leakdetector --skip-history --format sarif --report results.sarif || true
+          # Fix leakdetector SARIF: ensure rules is an array, not null
+          if [ -f results.sarif ]; then
+            python3 -c "
+          import json, sys
+          with open('results.sarif') as f:
+              data = json.load(f)
+          for run in data.get('runs', []):
+              driver = run.get('tool', {}).get('driver', {})
+              if driver.get('rules') is None:
+                  driver['rules'] = []
+          with open('results.sarif', 'w') as f:
+              json.dump(data, f, indent=2)
+          " || true
+          fi
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('results.sarif') != ''
         with:
           sarif_file: results.sarif
           category: leakdetector
