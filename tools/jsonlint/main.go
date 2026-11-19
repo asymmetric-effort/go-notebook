@@ -92,7 +92,7 @@ func findJSONFiles(dir string) ([]string, error) {
 		}
 		if info.IsDir() {
 			base := filepath.Base(path)
-			if base == "node_modules" || base == ".git" || base == "vendor" {
+			if base == "node_modules" || base == ".git" || base == "vendor" || base == "target" {
 				return filepath.SkipDir
 			}
 			return nil

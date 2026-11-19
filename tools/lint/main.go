@@ -200,7 +200,7 @@ func findFilesByExt(root string, primary string, extra []string) []string {
 			return nil
 		}
 		base := filepath.Base(path)
-		if info.IsDir() && (base == "node_modules" || base == ".git" || base == "vendor") {
+		if info.IsDir() && (base == "node_modules" || base == ".git" || base == "vendor" || base == "target") {
 			return filepath.SkipDir
 		}
 		if info.IsDir() {
