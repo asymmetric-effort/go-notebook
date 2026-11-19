@@ -1,0 +1,80 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+jobs:
+  leakdetector:
+    name: Leak detection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.4'
+      - name: Install leakdetector
+        run: go install github.com/asymmetric-effort/leakdetector/cmd/leakdetector@latest
+      - name: Run leakdetector
+        run: leakdetector --skip-history --format sarif --report results.sarif || true
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: results.sarif
+          category: leakdetector
+  lint-and-test:
+    name: ${{ matrix.os }}/${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    needs: leakdetector
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+          - os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - os: macos
+            arch: amd64
+            runner: macos-13
+          - os: macos
+            arch: arm64
+            runner: macos-latest
+          - os: windows
+            arch: amd64
+            runner: windows-latest
+    env:
+      CGO_ENABLED: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install npm dependencies
+        run: npm ci
+      - name: Install Go tools
+        run: |
+          go install github.com/asymmetric-effort/leakdetector/cmd/leakdetector@latest
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install github.com/checkmake/checkmake/cmd/checkmake@latest
+          go install github.com/google/yamlfmt/cmd/yamlfmt@latest
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxml2-utils
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install libxml2
+      - name: Install markdownlint-cli2
+        run: npm install -g markdownlint-cli2
+      - name: Lint
+        run: make lint
+      - name: Test
+        run: make test
