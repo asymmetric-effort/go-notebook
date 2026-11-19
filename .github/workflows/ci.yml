@@ -5,9 +5,9 @@ on:
   pull_request:
     branches: [main]
 jobs:
-  leakdetector:
-    name: Leak detection
-    runs-on: ubuntu-latest
+  checks:
+    name: Lint, scan and coverage
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
         with:
@@ -15,15 +15,23 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.4'
-      - name: Install leakdetector
-        run: go install github.com/asymmetric-effort/leakdetector/cmd/leakdetector@latest
-      - name: Run leakdetector
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: |
+          npm ci
+          go install github.com/asymmetric-effort/leakdetector/cmd/leakdetector@latest
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install github.com/checkmake/checkmake/cmd/checkmake@latest
+          go install github.com/google/yamlfmt/cmd/yamlfmt@latest
+          sudo apt-get update && sudo apt-get install -y libxml2-utils
+      - name: Leakdetector
         run: |
           leakdetector --skip-history --format sarif --report results.sarif || true
-          # Fix leakdetector SARIF: ensure rules is an array, not null
           if [ -f results.sarif ]; then
             python3 -c "
-          import json, sys
+          import json
           with open('results.sarif') as f:
               data = json.load(f)
           for run in data.get('runs', []):
@@ -40,10 +48,16 @@ jobs:
         with:
           sarif_file: results.sarif
           category: leakdetector
-  lint-and-test:
+      - name: Govulncheck
+        run: govulncheck ./...
+      - name: Lint
+        run: make lint
+      - name: Test with coverage
+        run: make test
+  build-and-test:
     name: ${{ matrix.os }}/${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
-    needs: leakdetector
+    needs: checks
     strategy:
       fail-fast: false
       matrix:
@@ -73,26 +87,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.4'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install npm dependencies
-        run: npm ci
-      - name: Install Go tools
-        run: |
-          go install github.com/asymmetric-effort/leakdetector/cmd/leakdetector@latest
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          go install github.com/checkmake/checkmake/cmd/checkmake@latest
-          go install github.com/google/yamlfmt/cmd/yamlfmt@latest
-      - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libxml2-utils
-      - name: Install system dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: brew install libxml2
-      - name: Install markdownlint-cli2
-        run: npm install -g markdownlint-cli2
-      - name: Lint
-        run: make lint
+      - name: Build
+        run: go build ./...
       - name: Test
-        run: make test
+        run: go test ./...
