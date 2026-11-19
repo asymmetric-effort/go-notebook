@@ -1,0 +1,43 @@
+# Build artifacts
+/bin/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go
+*.o
+*.a
+*.test
+*.out
+/vendor/
+
+# Coverage
+coverage.out
+coverage.html
+*.coverprofile
+
+# Secrets
+*.secrets
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node (for TypeScript tooling)
+node_modules/
+
+# Docker test environments
+.testenv/
+
+# Generated code
+/gen/
