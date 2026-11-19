@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -12,6 +13,11 @@ import (
 )
 
 func dockerAvailable() bool {
+	// Docker tests use Linux containers; skip on Windows CI where only
+	// Windows containers are available.
+	if runtime.GOOS == "windows" {
+		return false
+	}
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return false
