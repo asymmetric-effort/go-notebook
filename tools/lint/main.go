@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -21,6 +22,7 @@ func linters() []linter {
 	return []linter{
 		{name: "go vet", fn: goVet},
 		{name: "gofmt", fn: goFmt},
+		{name: "jsonlint", fn: jsonLint},
 	}
 }
 
@@ -47,6 +49,36 @@ func goFmt() error {
 		return fmt.Errorf("unformatted files:\n%s", unformatted)
 	}
 	return nil
+}
+
+// jsonLint runs the in-repo JSON linter on the project root.
+func jsonLint() error {
+	root, err := moduleRoot()
+	if err != nil {
+		return fmt.Errorf("find module root: %w", err)
+	}
+	cmd := exec.Command("go", "run", "./tools/jsonlint", root)
+	cmd.Dir = root
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("jsonlint failed: %w", err)
+	}
+	return nil
+}
+
+// moduleRoot returns the root directory of the Go module.
+func moduleRoot() (string, error) {
+	cmd := exec.Command("go", "env", "GOMOD")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	modFile := strings.TrimSpace(string(out))
+	if modFile == "" || modFile == os.DevNull {
+		return "", fmt.Errorf("not inside a Go module")
+	}
+	return filepath.Dir(modFile), nil
 }
 
 func run() int {
