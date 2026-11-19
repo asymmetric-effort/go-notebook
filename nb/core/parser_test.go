@@ -438,6 +438,8 @@ func TestIsClosingFence(t *testing.T) {
 		{"~~~", '~', 3, 0, true},
 		{"```info", '`', 3, 0, false},
 		{"   ```", '`', 3, 0, true},
+		{"   ", '`', 3, 0, false},
+		{"", '`', 3, 0, false},
 	}
 	for _, tt := range tests {
 		got := isClosingFence(tt.line, tt.char, tt.fenceLen, tt.indent)
