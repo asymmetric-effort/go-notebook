@@ -1,2 +1,6 @@
 # leakdetector configuration
 # https://leakdetector.asymmetric-effort.com/
+exclude_paths:
+  - "node_modules/"
+  - ".git/"
+  - "vendor/"
