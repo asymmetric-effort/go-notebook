@@ -20,11 +20,32 @@ const coverageFloor = 98.0
 // Tool main packages contain os.Exit calls that cannot be tested in-process.
 var excludePrefixes = []string{
 	"github.com/asymmetric-effort/go-notebook/tools/",
+	"github.com/asymmetric-effort/go-notebook/node_modules/",
 }
 
 func run() int {
 	coverFile := "coverage.out"
-	cmd := exec.Command("go", "test", "-coverprofile", coverFile, "./...")
+	// List packages explicitly, excluding node_modules which may contain
+	// Go packages from npm dependencies.
+	pkgsCmd := exec.Command("go", "list", "./...")
+	pkgsOut, err := pkgsCmd.Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: list packages: %v\n", err)
+		return 1
+	}
+	var pkgs []string
+	for _, line := range strings.Split(strings.TrimSpace(string(pkgsOut)), "\n") {
+		if line != "" && !strings.Contains(line, "/node_modules/") {
+			pkgs = append(pkgs, line)
+		}
+	}
+	if len(pkgs) == 0 {
+		fmt.Println("no packages to test")
+		return 0
+	}
+
+	args := append([]string{"test", "-coverprofile", coverFile}, pkgs...)
+	cmd := exec.Command("go", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

@@ -98,6 +98,11 @@ func findJSONFiles(dir string) ([]string, error) {
 			return nil
 		}
 		if filepath.Ext(path) == ".json" {
+			base := filepath.Base(path)
+			// Skip npm-generated files which use their own formatting convention.
+			if base == "package-lock.json" {
+				return nil
+			}
 			files = append(files, path)
 		}
 		return nil
