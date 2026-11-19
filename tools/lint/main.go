@@ -23,6 +23,8 @@ func linters() []linter {
 		{name: "go vet", fn: goVet},
 		{name: "gofmt", fn: goFmt},
 		{name: "jsonlint", fn: jsonLint},
+		{name: "eslint", fn: esLint},
+		{name: "tsc", fn: tscCheck},
 	}
 }
 
@@ -79,6 +81,68 @@ func moduleRoot() (string, error) {
 		return "", fmt.Errorf("not inside a Go module")
 	}
 	return filepath.Dir(modFile), nil
+}
+
+// hasTypeScriptFiles checks if any .ts files exist in the project.
+func hasTypeScriptFiles() bool {
+	root, err := moduleRoot()
+	if err != nil {
+		return false
+	}
+	found := false
+	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		base := filepath.Base(path)
+		if info.IsDir() && (base == "node_modules" || base == ".git") {
+			return filepath.SkipDir
+		}
+		if filepath.Ext(path) == ".ts" {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
+}
+
+// esLint runs ESLint on TypeScript files.
+func esLint() error {
+	if !hasTypeScriptFiles() {
+		return nil
+	}
+	root, err := moduleRoot()
+	if err != nil {
+		return fmt.Errorf("find module root: %w", err)
+	}
+	cmd := exec.Command("npx", "eslint", ".")
+	cmd.Dir = root
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("eslint failed: %w", err)
+	}
+	return nil
+}
+
+// tscCheck runs tsc --noEmit for type checking.
+func tscCheck() error {
+	if !hasTypeScriptFiles() {
+		return nil
+	}
+	root, err := moduleRoot()
+	if err != nil {
+		return fmt.Errorf("find module root: %w", err)
+	}
+	cmd := exec.Command("npx", "tsc", "--noEmit")
+	cmd.Dir = root
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("tsc failed: %w", err)
+	}
+	return nil
 }
 
 func run() int {

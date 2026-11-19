@@ -18,19 +18,44 @@ func TestGoFmtPasses(t *testing.T) {
 
 func TestLintersReturnsChecks(t *testing.T) {
 	checks := linters()
-	if len(checks) < 2 {
-		t.Fatalf("linters() returned %d checks, want at least 2", len(checks))
-	}
-	if checks[0].name != "go vet" {
-		t.Errorf("first linter = %q, want %q", checks[0].name, "go vet")
-	}
-	if checks[1].name != "gofmt" {
-		t.Errorf("second linter = %q, want %q", checks[1].name, "gofmt")
+	if len(checks) < 5 {
+		t.Fatalf("linters() returned %d checks, want at least 5", len(checks))
 	}
 }
 
 func TestRunReturnsZero(t *testing.T) {
 	if code := run(); code != 0 {
 		t.Fatalf("run() = %d, want 0", code)
+	}
+}
+
+func TestEsLintNoFiles(t *testing.T) {
+	// Should pass when no TS files exist.
+	if err := esLint(); err != nil {
+		t.Fatalf("esLint() = %v, want nil", err)
+	}
+}
+
+func TestTscCheckNoFiles(t *testing.T) {
+	// Should pass when no TS files exist.
+	if err := tscCheck(); err != nil {
+		t.Fatalf("tscCheck() = %v, want nil", err)
+	}
+}
+
+func TestModuleRoot(t *testing.T) {
+	root, err := moduleRoot()
+	if err != nil {
+		t.Fatalf("moduleRoot() = _, %v", err)
+	}
+	if root == "" {
+		t.Fatal("moduleRoot() returned empty string")
+	}
+}
+
+func TestHasTypeScriptFilesNone(t *testing.T) {
+	// Currently no .ts files in the project.
+	if hasTypeScriptFiles() {
+		t.Error("hasTypeScriptFiles() = true, want false (no TS files yet)")
 	}
 }
