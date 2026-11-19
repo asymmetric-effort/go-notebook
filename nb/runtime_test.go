@@ -126,5 +126,20 @@ func TestContextDisplaysConcurrent(t *testing.T) {
 	}
 }
 
+func TestContextDisplaysEmpty(t *testing.T) {
+	ctx := NewContext(nil)
+	displays := ctx.Displays()
+	if len(displays) != 0 {
+		t.Errorf("got %d displays, want 0", len(displays))
+	}
+}
+
+func TestContextSecretNoSecrets(t *testing.T) {
+	ctx := NewContext(nil)
+	if got := ctx.Secret("anything"); got != "" {
+		t.Errorf("Secret on nil map = %q, want empty", got)
+	}
+}
+
 // Verify fs.File interface satisfaction.
 var _ fs.FS = fstest.MapFS{}

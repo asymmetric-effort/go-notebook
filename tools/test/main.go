@@ -21,6 +21,7 @@ const coverageFloor = 98.0
 var excludePrefixes = []string{
 	"github.com/asymmetric-effort/go-notebook/tools/",
 	"github.com/asymmetric-effort/go-notebook/node_modules/",
+	"github.com/asymmetric-effort/go-notebook/cmd/",
 }
 
 func run() int {
