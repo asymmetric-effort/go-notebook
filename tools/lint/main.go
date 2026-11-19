@@ -8,8 +8,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
+
+// isWindows returns true if running on Windows.
+func isWindows() bool {
+	return runtime.GOOS == "windows"
+}
 
 // linter represents a single lint check.
 type linter struct {
@@ -108,8 +114,12 @@ func markdownLint() error {
 	return nil
 }
 
-// checkMake runs checkmake on Makefile and .mk files.
+// checkMake runs checkmake on Makefile and .mk files. Skips if checkmake is not installed.
 func checkMake() error {
+	if _, err := exec.LookPath("checkmake"); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: checkmake not found, skipping Makefile lint\n")
+		return nil
+	}
 	root, err := moduleRoot()
 	if err != nil {
 		return fmt.Errorf("find module root: %w", err)
@@ -126,8 +136,17 @@ func checkMake() error {
 	return nil
 }
 
-// yamlFmt runs yamlfmt -lint on YAML files.
+// yamlFmt runs yamlfmt -lint on YAML files. Skips if yamlfmt is not installed
+// or on Windows where CRLF handling causes false positives.
 func yamlFmt() error {
+	if _, err := exec.LookPath("yamlfmt"); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: yamlfmt not found, skipping YAML lint\n")
+		return nil
+	}
+	if isWindows() {
+		fmt.Fprintf(os.Stderr, "warning: skipping yamlfmt on Windows (CRLF issues)\n")
+		return nil
+	}
 	root, err := moduleRoot()
 	if err != nil {
 		return fmt.Errorf("find module root: %w", err)
@@ -147,8 +166,12 @@ func yamlFmt() error {
 	return nil
 }
 
-// xmlLint runs xmllint on XML and SVG files.
+// xmlLint runs xmllint on XML and SVG files. Skips if xmllint is not installed.
 func xmlLint() error {
+	if _, err := exec.LookPath("xmllint"); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: xmllint not found, skipping XML/SVG lint\n")
+		return nil
+	}
 	root, err := moduleRoot()
 	if err != nil {
 		return fmt.Errorf("find module root: %w", err)

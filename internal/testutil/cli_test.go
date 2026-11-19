@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -26,7 +27,11 @@ func buildFixture(t *testing.T, name, src string) string {
 	if err := os.WriteFile(filepath.Join(pkg, "main.go"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	bin := filepath.Join(dir, name+"-bin")
+	binName := name + "-bin"
+	if runtime.GOOS == "windows" {
+		binName += ".exe"
+	}
+	bin := filepath.Join(dir, binName)
 	cmd := exec.Command("go", "build", "-o", bin, ".")
 	cmd.Dir = pkg
 	out, err := cmd.CombinedOutput()
@@ -128,6 +133,8 @@ import ("fmt"; "os")
 func main() { wd, _ := os.Getwd(); fmt.Fprint(os.Stdout, wd) }
 `)
 	workDir := t.TempDir()
+	// Resolve symlinks for macOS where /var -> /private/var.
+	workDir, _ = filepath.EvalSymlinks(workDir)
 	result, err := RunCLIWithEnv(bin, nil, "", 10*time.Second, nil, workDir)
 	if err != nil {
 		t.Fatal(err)

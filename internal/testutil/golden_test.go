@@ -5,6 +5,7 @@ package testutil
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -135,6 +136,9 @@ func TestCompareGoldenUpdateMkdirFails(t *testing.T) {
 }
 
 func TestCompareGoldenUpdateWriteFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("read-only directory permissions work differently on Windows")
+	}
 	dir := t.TempDir()
 	// Create a read-only directory.
 	roDir := filepath.Join(dir, "readonly")
