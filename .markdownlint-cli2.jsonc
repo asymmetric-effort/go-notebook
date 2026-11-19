@@ -1,0 +1,8 @@
+// markdownlint configuration
+// https://github.com/DavidAnson/markdownlint-cli2
+{
+	"config": {
+		"default": true,
+		"MD013": false
+	}
+}
