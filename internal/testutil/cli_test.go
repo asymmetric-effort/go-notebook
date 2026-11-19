@@ -128,6 +128,8 @@ import ("fmt"; "os")
 func main() { wd, _ := os.Getwd(); fmt.Fprint(os.Stdout, wd) }
 `)
 	workDir := t.TempDir()
+	// Resolve symlinks for macOS where /var -> /private/var.
+	workDir, _ = filepath.EvalSymlinks(workDir)
 	result, err := RunCLIWithEnv(bin, nil, "", 10*time.Second, nil, workDir)
 	if err != nil {
 		t.Fatal(err)
