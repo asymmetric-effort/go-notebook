@@ -4,3 +4,5 @@ exclude_paths:
   - "node_modules/"
   - ".git/"
   - "vendor/"
+  - "typst-module/target/"
+  - ".claude/"
