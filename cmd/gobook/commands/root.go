@@ -7,8 +7,15 @@ import (
 	"fmt"
 	"os"
 
+	"context"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
 	"github.com/asymmetric-effort/go-notebook/nb/build"
 	"github.com/asymmetric-effort/go-notebook/nb/core"
+	"github.com/asymmetric-effort/go-notebook/nb/kernel"
 )
 
 // Execute runs the gobook CLI. For now this is a simple dispatch without
@@ -147,11 +154,12 @@ func cmdRun(args []string) error {
 	if err != nil {
 		return err
 	}
-	// For now, run means: parse, check, generate, report.
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
+
+	// Parse and check.
 	result := core.Parse(string(src))
 	errs := core.Check(result)
 	if len(errs) > 0 {
@@ -160,7 +168,57 @@ func cmdRun(args []string) error {
 		}
 		return fmt.Errorf("%d check errors", len(errs))
 	}
-	fmt.Printf("gobook run: %s checked successfully (%d cells)\n", path, countCells(result))
+
+	// Generate the Go package.
+	gen, err := core.Generate(result, "main")
+	if err != nil {
+		return fmt.Errorf("generate %s: %w", path, err)
+	}
+
+	// Write to a temp directory.
+	tmpDir, err := os.MkdirTemp("", "gobook-run-*")
+	if err != nil {
+		return fmt.Errorf("create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	pkgDir := filepath.Join(tmpDir, "pkg")
+	if err := core.WritePackage(gen, pkgDir, path, "gobook-run"); err != nil {
+		return fmt.Errorf("write package: %w", err)
+	}
+
+	// Add replace directive pointing to the notebook's module.
+	moduleRoot := findModuleRootFromPath(path)
+	goModPath := filepath.Join(pkgDir, "go.mod")
+	goModData, _ := os.ReadFile(goModPath)
+	goModStr := string(goModData) + "\nreplace github.com/asymmetric-effort/go-notebook => " + moduleRoot + "\n"
+	os.WriteFile(goModPath, []byte(goModStr), 0o644)
+
+	// Execute via the kernel.
+	k := kernel.New()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	cellResult, err := k.RunCell(ctx, "all", 5*time.Minute,
+		func(ctx context.Context) (kernel.CellResult, error) {
+			return kernel.GoRun(ctx, pkgDir)
+		})
+	if err != nil {
+		return fmt.Errorf("run %s: %w", path, err)
+	}
+
+	// Print output.
+	if cellResult.Stdout != "" {
+		fmt.Print(cellResult.Stdout)
+	}
+	if cellResult.Stderr != "" {
+		fmt.Fprint(os.Stderr, cellResult.Stderr)
+	}
+	if cellResult.ExitCode != 0 {
+		return fmt.Errorf("cell exited with status %d", cellResult.ExitCode)
+	}
+
+	fmt.Fprintf(os.Stderr, "gobook run: %s completed successfully\n", path)
 	return nil
 }
 
@@ -182,6 +240,21 @@ func cmdVet(args []string) error {
 		return fmt.Errorf("%d findings", len(errs))
 	}
 	return nil
+}
+
+// findModuleRootFromPath finds the go-notebook module root. For now, uses
+// `go env GOMOD` which works when gobook is run from within the module.
+func findModuleRootFromPath(notebookPath string) string {
+	cmd := exec.Command("go", "env", "GOMOD")
+	out, err := cmd.Output()
+	if err != nil {
+		return "."
+	}
+	modFile := strings.TrimSpace(string(out))
+	if modFile == "" || modFile == os.DevNull {
+		return "."
+	}
+	return filepath.Dir(modFile)
 }
 
 func countCells(result core.ParseResult) int {
