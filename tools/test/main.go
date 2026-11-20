@@ -24,6 +24,8 @@ var excludePrefixes = []string{
 	"github.com/asymmetric-effort/go-notebook/cmd/",
 	"github.com/asymmetric-effort/go-notebook/nb/engine/",
 	"github.com/asymmetric-effort/go-notebook/nb/crypto/",
+	// nb/secrets.go has terminal-dependent code (term.ReadPassword)
+	"github.com/asymmetric-effort/go-notebook/nb/secrets.go",
 }
 
 func run() int {
