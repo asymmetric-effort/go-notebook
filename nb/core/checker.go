@@ -7,6 +7,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -49,6 +51,8 @@ func Check(result ParseResult) []error {
 			if attrs.Name != "" {
 				cells = append(cells, checkerCellInfo{name: attrs.Name, line: b.StartPos.Line, attrs: attrs})
 			}
+		case BlockProse:
+			errs = append(errs, checkProse(b)...)
 		}
 	}
 
@@ -149,6 +153,73 @@ func checkCell(b Block, attrs CellAttrs, upstream []checkerCellInfo) []error {
 	}
 
 	return errs
+}
+
+// imageRefRegex matches Markdown image references: ![alt](path)
+var imageRefRegex = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
+
+// htmlTagRegex matches HTML tags in prose.
+var htmlTagRegex = regexp.MustCompile(`<(/?)([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>`)
+
+// checkProse enforces rules 16-21 on prose blocks.
+func checkProse(b Block) []error {
+	var errs []error
+	lines := strings.Split(b.Body, "\n")
+
+	for i, line := range lines {
+		mdLine := b.StartPos.Line + i
+
+		// Rule 16: Image paths stay inside the notebook directory.
+		for _, match := range imageRefRegex.FindAllStringSubmatch(line, -1) {
+			imgPath := match[2]
+			if filepath.IsAbs(imgPath) {
+				errs = append(errs, &CheckError{
+					Line:    mdLine,
+					Message: fmt.Sprintf("image path %q is absolute (rule 16). Use a relative path inside the notebook directory.", imgPath),
+				})
+			}
+			if strings.Contains(imgPath, "..") && !isWebURL(imgPath) {
+				errs = append(errs, &CheckError{
+					Line:    mdLine,
+					Message: fmt.Sprintf("image path %q leaves the notebook directory (rule 16). Remove the ../ component.", imgPath),
+				})
+			}
+		}
+
+		// Rule 18: Raw HTML uses only allowlisted tags.
+		for _, match := range htmlTagRegex.FindAllStringSubmatch(line, -1) {
+			tag := match[2]
+			if IsRefusedTag(tag) {
+				errs = append(errs, &CheckError{
+					Line:    mdLine,
+					Message: fmt.Sprintf("<%s> is not allowed in notebook prose (rule 18). Refused tags: script, iframe, frame, object, embed, base, meta.", tag),
+				})
+			}
+		}
+
+		// Rule 19: No DOCTYPE or entity declarations.
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToUpper(trimmed), "<!DOCTYPE") {
+			errs = append(errs, &CheckError{
+				Line:    mdLine,
+				Message: "<!DOCTYPE> is not allowed (rule 19). Blocks external entities and entity expansion.",
+			})
+		}
+		if strings.Contains(trimmed, "<!ENTITY") {
+			errs = append(errs, &CheckError{
+				Line:    mdLine,
+				Message: "<!ENTITY> declarations are not allowed (rule 19). Blocks entity expansion attacks.",
+			})
+		}
+	}
+
+	return errs
+}
+
+// isWebURL checks if a reference is an HTTP/HTTPS URL.
+func isWebURL(ref string) bool {
+	lower := strings.ToLower(ref)
+	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")
 }
 
 // hasEmbedDirective checks if a var declaration has a //go:embed comment
