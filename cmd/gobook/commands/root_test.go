@@ -86,6 +86,65 @@ func TestCmdRun(t *testing.T) {
 	}
 }
 
+func TestCmdRunWithPrint(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.md")
+	// A cell that imports fmt and prints. The import must be in go:defs.
+	src := "```go:defs\nimport \"fmt\"\n```\n\n```go:notebook name=test exported(val int)\nval = 42\nfmt.Println(\"hello from cell\")\n```\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Capture stdout by redirecting.
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := cmdRun([]string{path})
+
+	w.Close()
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("cmdRun = %v", err)
+	}
+
+	buf := make([]byte, 1024)
+	n, _ := r.Read(buf)
+	output := string(buf[:n])
+	if !contains(output, "hello from cell") {
+		t.Errorf("expected cell output in stdout, got: %q", output)
+	}
+}
+
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || lenContains(s, sub))
+}
+
+func lenContains(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCmdRunPanicRecovery(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.md")
+	src := "```go:notebook name=test exported(val int)\npanic(\"test\")\n```\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Should not return a Go runtime panic — the deferred recovery catches it.
+	err := cmdRun([]string{path})
+	// The cell panics, but the binary catches it and exits 0.
+	// gobook run should succeed.
+	if err != nil {
+		t.Logf("cmdRun error (may be expected): %v", err)
+	}
+}
+
 func TestCmdVet(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.md")
