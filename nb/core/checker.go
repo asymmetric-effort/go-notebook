@@ -121,6 +121,12 @@ func checkCell(b Block, attrs CellAttrs, upstream []checkerCellInfo) []error {
 		})
 	}
 
+	// Rule 4: Cell bodies use only bare return.
+	checkBareReturn(b, &errs)
+
+	// Rule 5: References only to named cells above.
+	checkCellReferences(b, attrs, upstream, &errs)
+
 	// Rule 10: Reject direct os.Open, os.ReadFile, os.Create, os.WriteFile calls.
 	for _, fn := range []string{"os.Open", "os.ReadFile", "os.Create", "os.WriteFile", "os.OpenFile"} {
 		if strings.Contains(b.Body, fn) {
@@ -149,6 +155,39 @@ func checkCell(b Block, attrs CellAttrs, upstream []checkerCellInfo) []error {
 	}
 
 	return errs
+}
+
+// checkCellReferences is a placeholder for rule 5. The generated code enforces
+// this at compile time: upstream cells are passed as function parameters, so
+// referencing a cell that isn't above produces a compile error. Full AST-based
+// enforcement requires go/types integration (tracked in #18).
+func checkCellReferences(b Block, attrs CellAttrs, upstream []checkerCellInfo, errs *[]error) {
+	// Enforced by generated code at compile time.
+}
+
+// checkBareReturn enforces rule 4: cell bodies may only use bare `return`,
+// not `return x` or `return x, y`.
+func checkBareReturn(b Block, errs *[]error) {
+	src := "package _\nfunc _() {\n" + b.Body + "\n}\n"
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", src, 0)
+	if err != nil {
+		return
+	}
+	ast.Inspect(f, func(n ast.Node) bool {
+		ret, ok := n.(*ast.ReturnStmt)
+		if !ok {
+			return true
+		}
+		if len(ret.Results) > 0 {
+			line := b.BodyPos.Line + fset.Position(ret.Pos()).Line - 2
+			*errs = append(*errs, &CheckError{
+				Line:    line,
+				Message: "cell bodies may only use bare return, not return <value> (rule 4). The deferred function sets the result.",
+			})
+		}
+		return true
+	})
 }
 
 // hasEmbedDirective checks if a var declaration has a //go:embed comment
