@@ -242,6 +242,38 @@ func TestWritePackageNoCells(t *testing.T) {
 	}
 }
 
+func TestAssembleSourceNoDefs(t *testing.T) {
+	gen := GenerateResult{
+		PackageName: "main",
+		Cells: []GeneratedCell{
+			{StructName: "testCell", FuncName: "runTest",
+				StructCode: "type testCell struct {\n\terr error\n}",
+				FuncCode:   "func runTest(ctx *nb.Context) (out testCell) {\n\treturn\n}"},
+		},
+	}
+	src := assembleSource(gen, "test.md")
+	if strings.Contains(src, "go:defs") {
+		t.Error("no defs should not have go:defs comment")
+	}
+	if !strings.Contains(src, "func main()") {
+		t.Error("missing main")
+	}
+}
+
+func TestAssembleSourceWithDefs(t *testing.T) {
+	gen := GenerateResult{
+		PackageName: "main",
+		DefsCode:    "const x = 1",
+	}
+	src := assembleSource(gen, "test.md")
+	if !strings.Contains(src, "const x = 1") {
+		t.Error("missing defs")
+	}
+	if !strings.Contains(src, "go:defs") {
+		t.Error("missing go:defs comment")
+	}
+}
+
 // findModuleRoot finds the go-notebook module root for replace directives.
 func findModuleRoot(t *testing.T) string {
 	t.Helper()

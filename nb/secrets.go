@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 
 	"golang.org/x/term"
@@ -67,10 +68,13 @@ func readSecretsFile(path string, name string) (string, error) {
 	}
 
 	// Check permissions: must be owner-only (0600 or 0400).
-	mode := info.Mode().Perm()
-	if mode&0o077 != 0 {
-		return "", fmt.Errorf("secrets file %s has permissions %o, must be owner-only (0600). Fix with: chmod 600 %s",
-			path, mode, path)
+	// Skip on Windows where Unix permissions don't apply.
+	if runtime.GOOS != "windows" {
+		mode := info.Mode().Perm()
+		if mode&0o077 != 0 {
+			return "", fmt.Errorf("secrets file %s has permissions %o, must be owner-only (0600). Fix with: chmod 600 %s",
+				path, mode, path)
+		}
 	}
 
 	f, err := os.Open(path)

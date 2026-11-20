@@ -64,10 +64,10 @@ func run() int {
 		return 1
 	}
 
-	fmt.Fprintf(os.Stdout, "\naggregate coverage: %.1f%%\n", pct)
+	fmt.Fprintf(os.Stdout, "\naggregate coverage: %.2f%%\n", pct)
 
 	if pct < coverageFloor {
-		fmt.Fprintf(os.Stderr, "error: aggregate coverage %.1f%% is below %.0f%% floor\n", pct, coverageFloor)
+		fmt.Fprintf(os.Stderr, "error: aggregate coverage %.2f%% is below %.0f%% floor\n", pct, coverageFloor)
 		return 1
 	}
 
