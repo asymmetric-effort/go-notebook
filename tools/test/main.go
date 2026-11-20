@@ -23,6 +23,7 @@ var excludePrefixes = []string{
 	"github.com/asymmetric-effort/go-notebook/node_modules/",
 	"github.com/asymmetric-effort/go-notebook/cmd/",
 	"github.com/asymmetric-effort/go-notebook/nb/engine/",
+	"github.com/asymmetric-effort/go-notebook/nb/crypto/",
 }
 
 func run() int {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/asymmetric-effort/go-notebook/nb/build"
 	"github.com/asymmetric-effort/go-notebook/nb/core"
 )
 
@@ -14,13 +15,15 @@ import (
 // cobra, which will be added when the report binary needs it.
 func Execute() error {
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: gobook <command> [args]\n\nCommands: check, gen, generate, run, fmt, vet")
+		return fmt.Errorf("usage: gobook <command> [args]\n\nCommands: build, check, gen, generate, run, fmt, vet")
 	}
 
 	cmd := os.Args[1]
 	args := os.Args[2:]
 
 	switch cmd {
+	case "build":
+		return cmdBuild(args)
 	case "check":
 		return cmdCheck(args)
 	case "fmt":
@@ -34,6 +37,35 @@ func Execute() error {
 	default:
 		return fmt.Errorf("unknown command %q", cmd)
 	}
+}
+
+func cmdBuild(args []string) error {
+	path, err := requireNotebookArg(args)
+	if err != nil {
+		return err
+	}
+	opts := build.Options{}
+	// Parse flags: --format, -o, --cell-timeout
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--format":
+			if i+1 < len(args) {
+				opts.Format = args[i+1]
+				i++
+			}
+		case "-o":
+			if i+1 < len(args) {
+				opts.Output = args[i+1]
+				i++
+			}
+		case "--cell-timeout":
+			if i+1 < len(args) {
+				opts.Timeout = args[i+1]
+				i++
+			}
+		}
+	}
+	return build.Run(path, opts)
 }
 
 func requireNotebookArg(args []string) (string, error) {
