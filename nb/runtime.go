@@ -8,14 +8,19 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"sync"
 )
 
 // Context provides the runtime interface for cell bodies. It gives access
 // to file I/O, secrets and display output.
+// Context provides the runtime interface for cell bodies. It gives access
+// to file I/O, secrets and display output.
 type Context struct {
 	mu       sync.Mutex
 	fs       fs.FS
+	outDir   string // Output directory for files created with Create.
 	displays []displayEntry
 	secrets  map[string]string
 }
@@ -25,7 +30,8 @@ type displayEntry struct {
 	data string
 }
 
-// NewContext creates a new runtime context.
+// NewContext creates a new runtime context. outDir is the directory where
+// files created with Create are written.
 func NewContext(fsys fs.FS) *Context {
 	return &Context{
 		fs: fsys,
@@ -41,12 +47,34 @@ func (ctx *Context) Open(name string) (fs.File, error) {
 	return ctx.fs.Open(name)
 }
 
+// SetOutputDir sets the directory where Create writes files.
+func (ctx *Context) SetOutputDir(dir string) {
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	ctx.outDir = dir
+}
+
 // Create creates a file declared in writes(). Returns a writer that the
-// cell writes output to.
+// cell writes output to. In notebook mode, files go to an output directory.
+// In the report binary, files go relative to the -o location.
 func (ctx *Context) Create(name string) (io.WriteCloser, error) {
-	// Placeholder: in notebook mode this writes to an output directory,
-	// in build mode relative to -o location.
-	return nil, fmt.Errorf("Create not yet implemented")
+	ctx.mu.Lock()
+	dir := ctx.outDir
+	ctx.mu.Unlock()
+
+	if dir == "" {
+		return nil, fmt.Errorf("no output directory configured for Create")
+	}
+
+	path := filepath.Join(dir, name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("create directory for %s: %w", name, err)
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return nil, fmt.Errorf("create %s: %w", name, err)
+	}
+	return f, nil
 }
 
 // Secret returns a secret value declared in secrets(). It reads from

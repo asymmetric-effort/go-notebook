@@ -5,6 +5,8 @@ package nb
 import (
 	"errors"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"testing"
 	"testing/fstest"
 )
@@ -68,11 +70,50 @@ func TestContextSecret(t *testing.T) {
 	}
 }
 
-func TestContextCreate(t *testing.T) {
+func TestContextCreateNoDir(t *testing.T) {
 	ctx := NewContext(nil)
 	_, err := ctx.Create("test.txt")
 	if err == nil {
-		t.Error("Create should return not-implemented error")
+		t.Error("Create without output dir should error")
+	}
+}
+
+func TestContextCreateWritesFile(t *testing.T) {
+	dir := t.TempDir()
+	ctx := NewContext(nil)
+	ctx.SetOutputDir(dir)
+
+	w, err := ctx.Create("output.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Write([]byte("hello from cell"))
+	w.Close()
+
+	data, err := os.ReadFile(filepath.Join(dir, "output.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "hello from cell" {
+		t.Errorf("file content = %q", data)
+	}
+}
+
+func TestContextCreateSubdir(t *testing.T) {
+	dir := t.TempDir()
+	ctx := NewContext(nil)
+	ctx.SetOutputDir(dir)
+
+	w, err := ctx.Create("sub/dir/file.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Write([]byte("nested"))
+	w.Close()
+
+	data, _ := os.ReadFile(filepath.Join(dir, "sub", "dir", "file.txt"))
+	if string(data) != "nested" {
+		t.Errorf("nested file content = %q", data)
 	}
 }
 
