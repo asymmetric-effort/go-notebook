@@ -138,6 +138,7 @@ func generateNamedCell(attrs CellAttrs, block Block, upstream []upstreamCell) Ge
 	// Line directive and body.
 	fmt.Fprintf(&funcBuf, "//line %s:%d:1\n", "notebook.md", block.BodyPos.Line)
 	fmt.Fprintf(&funcBuf, "%s\n", indentBody(block.Body))
+	fmt.Fprintf(&funcBuf, "\treturn\n")
 	fmt.Fprintf(&funcBuf, "}")
 
 	return GeneratedCell{
