@@ -172,7 +172,7 @@ func checkProse(b Block) []error {
 		// Rule 16: Image paths stay inside the notebook directory.
 		for _, match := range imageRefRegex.FindAllStringSubmatch(line, -1) {
 			imgPath := match[2]
-			if filepath.IsAbs(imgPath) {
+			if filepath.IsAbs(imgPath) || strings.HasPrefix(imgPath, "/") {
 				errs = append(errs, &CheckError{
 					Line:    mdLine,
 					Message: fmt.Sprintf("image path %q is absolute (rule 16). Use a relative path inside the notebook directory.", imgPath),
