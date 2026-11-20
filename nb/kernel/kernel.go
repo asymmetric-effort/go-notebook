@@ -19,6 +19,9 @@ const DefaultCellTimeout = 5 * time.Minute
 type CellResult struct {
 	Name     string
 	Err      error
+	ExitCode int
+	Stdout   string
+	Stderr   string
 	Displays []DisplayEntry
 	Data     []byte // Serialized exported values.
 }
