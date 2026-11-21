@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -172,7 +173,11 @@ func TestWritePackagePanicRecovery(t *testing.T) {
 	os.WriteFile(filepath.Join(pkgDir, "go.mod"), []byte(goMod), 0o644)
 
 	// Build.
-	buildCmd := exec.Command("go", "build", "-o", filepath.Join(dir, "testbin"), "./...")
+	binName := "testbin"
+	if runtime.GOOS == "windows" {
+		binName += ".exe"
+	}
+	buildCmd := exec.Command("go", "build", "-o", filepath.Join(dir, binName), "./...")
 	buildCmd.Dir = pkgDir
 	buildCmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod")
 	out, err := buildCmd.CombinedOutput()
@@ -182,7 +187,7 @@ func TestWritePackagePanicRecovery(t *testing.T) {
 	}
 
 	// Run — the panic should be caught by the deferred recovery, not crash.
-	runCmd := exec.Command(filepath.Join(dir, "testbin"))
+	runCmd := exec.Command(filepath.Join(dir, binName))
 	runOut, runErr := runCmd.CombinedOutput()
 	// The binary should exit without a stack trace (panic is recovered).
 	// It may exit non-zero because the cell has an error, but it should NOT
