@@ -4,10 +4,9 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"os"
-
-	"context"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -16,77 +15,101 @@ import (
 	"github.com/asymmetric-effort/go-notebook/nb/build"
 	"github.com/asymmetric-effort/go-notebook/nb/core"
 	"github.com/asymmetric-effort/go-notebook/nb/kernel"
+	"github.com/spf13/cobra"
 )
 
-// Execute runs the gobook CLI. For now this is a simple dispatch without
-// cobra, which will be added when the report binary needs it.
-func Execute() error {
-	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: gobook <command> [args]\n\nCommands: build, check, gen, generate, run, fmt, vet")
-	}
-
-	cmd := os.Args[1]
-	args := os.Args[2:]
-
-	switch cmd {
-	case "build":
-		return cmdBuild(args)
-	case "check":
-		return cmdCheck(args)
-	case "fmt":
-		return cmdFmt(args)
-	case "gen", "generate":
-		return cmdGen(args)
-	case "run":
-		return cmdRun(args)
-	case "vet":
-		return cmdVet(args)
-	default:
-		return fmt.Errorf("unknown command %q", cmd)
-	}
+var rootCmd = &cobra.Command{
+	Use:           "gobook",
+	Short:         "Go notebook compiler and runner",
+	SilenceUsage:  true,
+	SilenceErrors: true,
 }
 
-func cmdBuild(args []string) error {
-	path, err := requireNotebookArg(args)
-	if err != nil {
-		return err
-	}
-	opts := build.Options{}
-	// Parse flags: --format, -o, --cell-timeout
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--format":
-			if i+1 < len(args) {
-				opts.Format = args[i+1]
-				i++
-			}
-		case "-o":
-			if i+1 < len(args) {
-				opts.Output = args[i+1]
-				i++
-			}
-		case "--cell-timeout":
-			if i+1 < len(args) {
-				opts.Timeout = args[i+1]
-				i++
-			}
-		}
-	}
+var buildFormat string
+var buildOutput string
+var buildTimeout string
+
+var buildCmd = &cobra.Command{
+	Use:   "build <notebook.md>",
+	Short: "Build a notebook into a report",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return cmdBuild(args[0], build.Options{
+			Format:  buildFormat,
+			Output:  buildOutput,
+			Timeout: buildTimeout,
+		})
+	},
+}
+
+var checkCmd = &cobra.Command{
+	Use:   "check <notebook.md>",
+	Short: "Check a notebook for errors",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return cmdCheck(args[0])
+	},
+}
+
+var fmtCmd = &cobra.Command{
+	Use:   "fmt <notebook.md>",
+	Short: "Format a notebook",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return cmdFmt(args[0])
+	},
+}
+
+var genOutDir string
+
+var genCmd = &cobra.Command{
+	Use:     "gen <notebook.md>",
+	Aliases: []string{"generate"},
+	Short:   "Generate Go package from a notebook",
+	Args:    cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return cmdGen(args[0], genOutDir)
+	},
+}
+
+var runCmd = &cobra.Command{
+	Use:   "run <notebook.md>",
+	Short: "Run all cells in a notebook",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return cmdRun(args[0])
+	},
+}
+
+var vetCmd = &cobra.Command{
+	Use:   "vet <notebook.md>",
+	Short: "Run go vet on a notebook's generated code",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return cmdVet(args[0])
+	},
+}
+
+func init() {
+	buildCmd.Flags().StringVar(&buildFormat, "format", "", "output format (md, html)")
+	buildCmd.Flags().StringVarP(&buildOutput, "output", "o", "", "output file path")
+	buildCmd.Flags().StringVar(&buildTimeout, "cell-timeout", "", "per-cell timeout")
+
+	genCmd.Flags().StringVar(&genOutDir, "out", "gen", "output directory")
+
+	rootCmd.AddCommand(buildCmd, checkCmd, fmtCmd, genCmd, runCmd, vetCmd)
+}
+
+// Execute runs the gobook CLI.
+func Execute() error {
+	return rootCmd.Execute()
+}
+
+func cmdBuild(path string, opts build.Options) error {
 	return build.Run(path, opts)
 }
 
-func requireNotebookArg(args []string) (string, error) {
-	if len(args) < 1 {
-		return "", fmt.Errorf("usage: gobook <command> <notebook.md>")
-	}
-	return args[0], nil
-}
-
-func cmdCheck(args []string) error {
-	path, err := requireNotebookArg(args)
-	if err != nil {
-		return err
-	}
+func cmdCheck(path string) error {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
@@ -102,11 +125,7 @@ func cmdCheck(args []string) error {
 	return nil
 }
 
-func cmdFmt(args []string) error {
-	path, err := requireNotebookArg(args)
-	if err != nil {
-		return err
-	}
+func cmdFmt(path string) error {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
@@ -123,11 +142,7 @@ func cmdFmt(args []string) error {
 	return nil
 }
 
-func cmdGen(args []string) error {
-	path, err := requireNotebookArg(args)
-	if err != nil {
-		return err
-	}
+func cmdGen(path string, outDir string) error {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
@@ -138,15 +153,6 @@ func cmdGen(args []string) error {
 		return fmt.Errorf("generate %s: %w", path, err)
 	}
 
-	// Determine output directory.
-	outDir := "gen"
-	for i := 0; i < len(args)-1; i++ {
-		if args[i] == "--out" {
-			outDir = args[i+1]
-		}
-	}
-
-	// Write the generated package to disk.
 	if err := core.WritePackage(gen, outDir, path, "gobook-gen"); err != nil {
 		return fmt.Errorf("write package: %w", err)
 	}
@@ -155,17 +161,12 @@ func cmdGen(args []string) error {
 	return nil
 }
 
-func cmdRun(args []string) error {
-	path, err := requireNotebookArg(args)
-	if err != nil {
-		return err
-	}
+func cmdRun(path string) error {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
 
-	// Parse and check.
 	result := core.Parse(string(src))
 	errs := core.Check(result)
 	if len(errs) > 0 {
@@ -175,13 +176,11 @@ func cmdRun(args []string) error {
 		return fmt.Errorf("%d check errors", len(errs))
 	}
 
-	// Generate the Go package.
 	gen, err := core.Generate(result, "main")
 	if err != nil {
 		return fmt.Errorf("generate %s: %w", path, err)
 	}
 
-	// Write to a temp directory.
 	tmpDir, err := os.MkdirTemp("", "gobook-run-*")
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
@@ -193,14 +192,12 @@ func cmdRun(args []string) error {
 		return fmt.Errorf("write package: %w", err)
 	}
 
-	// Add replace directive pointing to the notebook's module.
 	moduleRoot := findModuleRootFromPath(path)
 	goModPath := filepath.Join(pkgDir, "go.mod")
 	goModData, _ := os.ReadFile(goModPath)
 	goModStr := string(goModData) + "\nreplace github.com/asymmetric-effort/go-notebook => " + moduleRoot + "\n"
 	os.WriteFile(goModPath, []byte(goModStr), 0o644)
 
-	// Execute via the kernel.
 	k := kernel.New()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -213,7 +210,6 @@ func cmdRun(args []string) error {
 		return fmt.Errorf("run %s: %w", path, err)
 	}
 
-	// Print output.
 	if cellResult.Stdout != "" {
 		fmt.Print(cellResult.Stdout)
 	}
@@ -224,9 +220,6 @@ func cmdRun(args []string) error {
 		return fmt.Errorf("cell exited with status %d", cellResult.ExitCode)
 	}
 
-	// Write output blocks back into the Markdown file.
-	// For now, the entire stdout is associated with the last named cell.
-	// A full implementation would use per-cell structured output.
 	if cellResult.Stdout != "" {
 		outputs := make(map[string]string)
 		lastNamed := lastNamedCell(result)
@@ -247,17 +240,12 @@ func cmdRun(args []string) error {
 	return nil
 }
 
-func cmdVet(args []string) error {
-	path, err := requireNotebookArg(args)
-	if err != nil {
-		return err
-	}
+func cmdVet(path string) error {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
 
-	// First run the checker.
 	result := core.Parse(string(src))
 	errs := core.Check(result)
 	if len(errs) > 0 {
@@ -267,7 +255,6 @@ func cmdVet(args []string) error {
 		return fmt.Errorf("%d check findings", len(errs))
 	}
 
-	// Generate the package and run go vet on it.
 	gen, err := core.Generate(result, "main")
 	if err != nil {
 		return fmt.Errorf("generate %s: %w", path, err)
@@ -303,8 +290,6 @@ func cmdVet(args []string) error {
 	return nil
 }
 
-// findModuleRootFromPath finds the go-notebook module root. For now, uses
-// `go env GOMOD` which works when gobook is run from within the module.
 func findModuleRootFromPath(notebookPath string) string {
 	cmd := exec.Command("go", "env", "GOMOD")
 	out, err := cmd.Output()
@@ -318,7 +303,6 @@ func findModuleRootFromPath(notebookPath string) string {
 	return filepath.Dir(modFile)
 }
 
-// lastNamedCell returns the name of the last named cell in the notebook.
 func lastNamedCell(result core.ParseResult) string {
 	var last string
 	for _, b := range result.Blocks {
