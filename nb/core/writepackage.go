@@ -49,14 +49,14 @@ func WritePackage(gen GenerateResult, dir string, notebookPath string, modulePat
 }
 
 // assembleSource combines all parts of the GenerateResult into a single
-// compilable Go source file.
+// compilable Go source file. Import pruning ensures no unused imports.
 func assembleSource(gen GenerateResult, notebookPath string) string {
 	var buf strings.Builder
 
 	// Package declaration.
 	fmt.Fprintf(&buf, "package %s\n\n", gen.PackageName)
 
-	// Imports — always include the nb runtime and marshal dependencies.
+	// Collect all imports into a single block.
 	hasMarshal := false
 	for _, cell := range gen.Cells {
 		if cell.StructCode != "" {
@@ -64,27 +64,34 @@ func assembleSource(gen GenerateResult, notebookPath string) string {
 			break
 		}
 	}
+
+	// Extract imports from defs code and separate them from other declarations.
+	defsImports, defsBody := splitDefsImports(gen.DefsCode)
+
+	// Build the import block, deduplicating between marshal imports and defs imports.
+	seen := make(map[string]bool)
 	fmt.Fprintf(&buf, "import (\n")
 	if hasMarshal {
-		// Only add marshal imports that aren't already in the defs code.
-		if !strings.Contains(gen.DefsCode, "\"bytes\"") {
-			fmt.Fprintf(&buf, "\t\"bytes\"\n")
-		}
-		if !strings.Contains(gen.DefsCode, "\"encoding/gob\"") {
-			fmt.Fprintf(&buf, "\t\"encoding/gob\"\n")
-		}
-		if !strings.Contains(gen.DefsCode, "\"fmt\"") {
-			fmt.Fprintf(&buf, "\t\"fmt\"\n")
+		for _, pkg := range []string{"\"bytes\"", "\"encoding/gob\"", "\"fmt\""} {
+			fmt.Fprintf(&buf, "\t%s\n", pkg)
+			seen[pkg] = true
 		}
 	}
 	fmt.Fprintf(&buf, "\tnb \"github.com/asymmetric-effort/go-notebook/nb\"\n")
+	seen["nb \"github.com/asymmetric-effort/go-notebook/nb\""] = true
+	// Add imports extracted from defs blocks, skipping duplicates.
+	for _, imp := range defsImports {
+		if !seen[imp] {
+			fmt.Fprintf(&buf, "\t%s\n", imp)
+			seen[imp] = true
+		}
+	}
 	fmt.Fprintf(&buf, ")\n\n")
 
-	// Defs code (types, constants, functions from go:defs blocks).
-	// Must come before var declarations since defs may contain imports.
-	if gen.DefsCode != "" {
+	// Defs code (non-import declarations from go:defs blocks).
+	if defsBody != "" {
 		fmt.Fprintf(&buf, "// --- go:defs ---\n\n")
-		fmt.Fprintf(&buf, "%s\n\n", gen.DefsCode)
+		fmt.Fprintf(&buf, "%s\n\n", defsBody)
 	}
 
 	if hasMarshal {
@@ -108,7 +115,50 @@ func assembleSource(gen GenerateResult, notebookPath string) string {
 	// Main function that runs all cells in order.
 	buf.WriteString(generateMain(gen, notebookPath))
 
-	return buf.String()
+	// Prune unused imports from the assembled source.
+	src := buf.String()
+	pruned, err := PruneImports(src)
+	if err == nil {
+		return pruned
+	}
+	return src
+}
+
+// splitDefsImports separates import declarations from other code in defs blocks.
+// Returns the import specs (ready to include in an import block) and the
+// remaining non-import code.
+func splitDefsImports(defsCode string) (imports []string, body string) {
+	if defsCode == "" {
+		return nil, ""
+	}
+	var bodyLines []string
+	lines := strings.Split(defsCode, "\n")
+	inImportBlock := false
+	for i := 0; i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "import (" {
+			inImportBlock = true
+			continue
+		}
+		if inImportBlock {
+			if trimmed == ")" {
+				inImportBlock = false
+				continue
+			}
+			if trimmed != "" {
+				imports = append(imports, trimmed)
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "import ") && !strings.HasPrefix(trimmed, "import (") {
+			// Single-line import: import "fmt"
+			spec := strings.TrimPrefix(trimmed, "import ")
+			imports = append(imports, spec)
+			continue
+		}
+		bodyLines = append(bodyLines, lines[i])
+	}
+	return imports, strings.TrimSpace(strings.Join(bodyLines, "\n"))
 }
 
 // extractStructFields extracts field declarations from a struct definition string.
@@ -163,4 +213,39 @@ func generateMain(gen GenerateResult, notebookPath string) string {
 
 	fmt.Fprintf(&buf, "}\n")
 	return buf.String()
+}
+
+// ExtractCell creates a GenerateResult containing only the target cell and
+// its upstream named-cell dependencies. This enables ad hoc runs of a single
+// cell without compiling the entire notebook. Unnamed cells before the target
+// are skipped (they are side-effect-only and not referenced by name).
+func ExtractCell(gen GenerateResult, cellName string) (GenerateResult, error) {
+	// Find the target cell.
+	targetIdx := -1
+	for i, cell := range gen.Cells {
+		name := strings.TrimSuffix(cell.StructName, "Cell")
+		if name == cellName {
+			targetIdx = i
+			break
+		}
+	}
+	if targetIdx < 0 {
+		return gen, fmt.Errorf("cell %q not found", cellName)
+	}
+
+	// Include all named cells up to and including the target, since they
+	// may be upstream dependencies (passed as parameters).
+	var cells []GeneratedCell
+	for i := 0; i <= targetIdx; i++ {
+		if gen.Cells[i].StructName != "" {
+			cells = append(cells, gen.Cells[i])
+		}
+	}
+
+	return GenerateResult{
+		PackageName: gen.PackageName,
+		Imports:     gen.Imports,
+		DefsCode:    gen.DefsCode,
+		Cells:       cells,
+	}, nil
 }
