@@ -5,6 +5,7 @@ package commands
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/asymmetric-effort/go-notebook/nb/core"
@@ -127,6 +128,58 @@ func lenContains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+func TestCmdRunWritesOutputBlocks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.md")
+	src := "```go:defs\nimport \"fmt\"\n```\n\n```go:notebook name=greet exported(msg string)\nmsg = \"hello\"\nfmt.Println(\"greeting:\", msg)\n```\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Redirect stdout so the test doesn't print.
+	old := os.Stdout
+	_, w, _ := os.Pipe()
+	os.Stdout = w
+	err := cmdRun([]string{path})
+	w.Close()
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("cmdRun = %v", err)
+	}
+
+	// Read the file back — it should now contain an output block.
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(updated)
+	if !strings.Contains(content, "```output name=greet") {
+		t.Errorf("expected output block written back to file.\nFile content:\n%s", content)
+	}
+	if !strings.Contains(content, "greeting:") {
+		t.Errorf("expected cell output in output block.\nFile content:\n%s", content)
+	}
+}
+
+func TestLastNamedCell(t *testing.T) {
+	src := "```go:notebook name=a\n```\n\n```go:notebook\n```\n\n```go:notebook name=b\n```\n"
+	result := core.Parse(src)
+	last := lastNamedCell(result)
+	if last != "b" {
+		t.Errorf("lastNamedCell = %q, want %q", last, "b")
+	}
+}
+
+func TestLastNamedCellEmpty(t *testing.T) {
+	src := "```go:notebook\n```\n"
+	result := core.Parse(src)
+	last := lastNamedCell(result)
+	if last != "" {
+		t.Errorf("lastNamedCell = %q, want empty", last)
+	}
 }
 
 func TestCmdRunPanicRecovery(t *testing.T) {
