@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -46,6 +47,8 @@ func ResolveSecret(name string, notebookPath string) (string, error) {
 	secretsFile := notebookPath + ".secrets"
 	val, err := readSecretsFile(secretsFile, name)
 	if err == nil && val != "" {
+		// Ensure the secrets file is in .gitignore.
+		ensureGitignore(filepath.Dir(notebookPath), filepath.Base(secretsFile))
 		return val, nil
 	}
 
@@ -95,4 +98,35 @@ func readSecretsFile(path string, name string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("secret %q not found in %s", name, path)
+}
+
+// ensureGitignore adds the given pattern to the .gitignore in dir if not
+// already present. This prevents secrets files from being committed.
+func ensureGitignore(dir, pattern string) {
+	if dir == "" {
+		dir = "."
+	}
+	gitignorePath := filepath.Join(dir, ".gitignore")
+	content, err := os.ReadFile(gitignorePath)
+	if err == nil {
+		// Check if the pattern is already present.
+		for _, line := range strings.Split(string(content), "\n") {
+			if strings.TrimSpace(line) == pattern {
+				return
+			}
+		}
+	}
+
+	// Append the pattern.
+	f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return // Best effort — don't fail if .gitignore can't be written.
+	}
+	defer f.Close()
+
+	// Add a newline before the pattern if the file doesn't end with one.
+	if len(content) > 0 && content[len(content)-1] != '\n' {
+		f.WriteString("\n")
+	}
+	f.WriteString(pattern + "\n")
 }

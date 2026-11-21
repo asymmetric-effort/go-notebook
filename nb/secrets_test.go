@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -143,5 +144,77 @@ func TestResolveSecretEnvPriority(t *testing.T) {
 	}
 	if val != "env_value" {
 		t.Errorf("env should take priority: got %q, want %q", val, "env_value")
+	}
+}
+
+func TestEnsureGitignoreCreatesFile(t *testing.T) {
+	dir := t.TempDir()
+	ensureGitignore(dir, "test.md.secrets")
+
+	content, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "test.md.secrets") {
+		t.Errorf(".gitignore content = %q, want test.md.secrets", content)
+	}
+}
+
+func TestEnsureGitignoreAppendsToExisting(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("*.exe\n"), 0o644)
+
+	ensureGitignore(dir, "test.md.secrets")
+
+	content, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "test.md.secrets") {
+		t.Error("pattern not appended")
+	}
+	if !strings.Contains(string(content), "*.exe") {
+		t.Error("existing content removed")
+	}
+}
+
+func TestEnsureGitignoreNoDuplicate(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("test.md.secrets\n"), 0o644)
+
+	ensureGitignore(dir, "test.md.secrets")
+
+	content, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should only appear once.
+	count := strings.Count(string(content), "test.md.secrets")
+	if count != 1 {
+		t.Errorf("pattern appears %d times, want 1", count)
+	}
+}
+
+func TestResolveSecretUpdatesGitignore(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	secretsFile := notebook + ".secrets"
+	os.WriteFile(secretsFile, []byte("db=myvalue\n"), 0o600)
+
+	val, err := ResolveSecret("db", notebook)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != "myvalue" {
+		t.Errorf("val = %q, want myvalue", val)
+	}
+
+	// .gitignore should now contain the secrets file pattern.
+	content, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "test.md.secrets") {
+		t.Errorf(".gitignore = %q, want test.md.secrets", content)
 	}
 }
