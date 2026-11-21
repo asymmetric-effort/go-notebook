@@ -120,6 +120,15 @@ func TestContextCreateSubdir(t *testing.T) {
 	}
 }
 
+func TestContextCreateInvalidPath(t *testing.T) {
+	ctx := NewContext(nil)
+	ctx.SetOutputDir("/dev/null/impossible")
+	_, err := ctx.Create("file.txt")
+	if err == nil {
+		t.Error("expected error for invalid path")
+	}
+}
+
 func TestPanicErrorWithError(t *testing.T) {
 	original := errors.New("test error")
 	err := PanicError(original)

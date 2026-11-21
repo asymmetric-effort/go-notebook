@@ -122,3 +122,48 @@ func writeTestFile(t *testing.T, dir, name, content string) {
 func writeFile(dir, name, content string) error {
 	return os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644)
 }
+
+func TestCheckCellFieldMutationUnparseable(t *testing.T) {
+	// A cell body that can't be parsed should not crash the checker.
+	src := "```go:notebook name=a exported(val int)\nval = 1\n```\n\n" +
+		"```go:notebook name=b exported(result int)\n{{{invalid go\nresult = 1\n```\n"
+	result := Parse(src)
+	// Should not panic.
+	_ = Check(result)
+}
+
+func TestCheckFileAccessUnparseableBody(t *testing.T) {
+	// Same for file access checker — unparseable body should be safe.
+	src := "```go:notebook name=test reads(data.csv:embed)\n{{{invalid\n```\n"
+	result := Parse(src)
+	_ = Check(result)
+}
+
+func TestWritePackageEmbedMissingSrcDir(t *testing.T) {
+	// WritePackage with a notebook path whose dir doesn't exist for embed patterns.
+	gen := GenerateResult{
+		PackageName: "main",
+		DefsCode:    "//go:embed nonexistent.txt\nvar data string",
+	}
+	dir := t.TempDir()
+	pkgDir := filepath.Join(dir, "pkg")
+	// notebookPath points to a nonexistent directory, so embed copy finds no files.
+	err := WritePackage(gen, pkgDir, "/nonexistent/test.md", "testpkg")
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCheckCellReferencesUnparseable(t *testing.T) {
+	src := "```go:notebook name=a exported(val int)\nval = 1\n```\n\n" +
+		"```go:notebook name=b exported(result int)\n{{{invalid\nresult = 1\n```\n"
+	result := Parse(src)
+	_ = Check(result)
+}
+
+func TestExtractEmbedPatternsMultiline(t *testing.T) {
+	patterns := ExtractEmbedPatterns("//go:embed a.txt b.txt\n//go:embed c.txt")
+	if len(patterns) != 3 {
+		t.Errorf("got %d patterns, want 3", len(patterns))
+	}
+}
