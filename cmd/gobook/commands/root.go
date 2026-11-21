@@ -14,6 +14,7 @@ import (
 
 	"github.com/asymmetric-effort/go-notebook/nb/build"
 	"github.com/asymmetric-effort/go-notebook/nb/core"
+	"github.com/asymmetric-effort/go-notebook/nb/crypto"
 	"github.com/asymmetric-effort/go-notebook/nb/kernel"
 	"github.com/spf13/cobra"
 )
@@ -28,16 +29,23 @@ var rootCmd = &cobra.Command{
 var buildFormat string
 var buildOutput string
 var buildTimeout string
+var buildPassphrase bool
+var buildPassphraseFile string
 
 var buildCmd = &cobra.Command{
 	Use:   "build <notebook.md>",
 	Short: "Build a notebook into a report",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		passphrase, err := resolvePassphrase(buildPassphrase, buildPassphraseFile)
+		if err != nil {
+			return err
+		}
 		return cmdBuild(args[0], build.Options{
-			Format:  buildFormat,
-			Output:  buildOutput,
-			Timeout: buildTimeout,
+			Format:     buildFormat,
+			Output:     buildOutput,
+			Timeout:    buildTimeout,
+			Passphrase: passphrase,
 		})
 	},
 }
@@ -94,6 +102,9 @@ func init() {
 	buildCmd.Flags().StringVar(&buildFormat, "format", "", "output format (md, html)")
 	buildCmd.Flags().StringVarP(&buildOutput, "output", "o", "", "output file path")
 	buildCmd.Flags().StringVar(&buildTimeout, "cell-timeout", "", "per-cell timeout")
+	buildCmd.Flags().BoolVar(&buildPassphrase, "passphrase", false, "prompt for encryption passphrase")
+	buildCmd.Flags().StringVar(&buildPassphraseFile, "passphrase-file", "", "read passphrase from file")
+	buildCmd.MarkFlagsMutuallyExclusive("passphrase", "passphrase-file")
 
 	genCmd.Flags().StringVar(&genOutDir, "out", "gen", "output directory")
 
@@ -103,6 +114,31 @@ func init() {
 // Execute runs the gobook CLI.
 func Execute() error {
 	return rootCmd.Execute()
+}
+
+// resolvePassphrase handles the --passphrase and --passphrase-file flags.
+// Returns empty string if neither flag is set (no encryption needed).
+func resolvePassphrase(prompt bool, file string) (string, error) {
+	if !prompt && file == "" {
+		return "", nil
+	}
+	var passphrase string
+	var err error
+	if file != "" {
+		passphrase, err = crypto.ReadPassphraseFromFile(file)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		passphrase, err = crypto.PromptPassphrase(true) // confirm on build
+		if err != nil {
+			return "", err
+		}
+	}
+	if err := crypto.ValidatePassphrase(passphrase); err != nil {
+		return "", fmt.Errorf("passphrase rejected: %w", err)
+	}
+	return passphrase, nil
 }
 
 func cmdBuild(path string, opts build.Options) error {

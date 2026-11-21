@@ -15,9 +15,10 @@ import (
 
 // Options configures the build.
 type Options struct {
-	Format  string // "md" or "html" (default "html")
-	Output  string // Output file path
-	Timeout string // Cell timeout
+	Format     string // "md" or "html" (default "html")
+	Output     string // Output file path
+	Timeout    string // Cell timeout
+	Passphrase string // Encryption passphrase (empty = no encryption)
 }
 
 // Run executes gobook build: parse, check, generate the document model,
