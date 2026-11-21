@@ -7,7 +7,29 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
+
+// ExtractEmbedPatterns parses //go:embed directives from Go source code
+// and returns the list of patterns. Each directive can have multiple
+// space-separated patterns on the same line.
+func ExtractEmbedPatterns(src string) []string {
+	var patterns []string
+	for _, line := range strings.Split(src, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "//go:embed ") {
+			continue
+		}
+		// Everything after "//go:embed " is space-separated patterns.
+		rest := strings.TrimPrefix(trimmed, "//go:embed ")
+		for _, p := range strings.Fields(rest) {
+			if p != "" {
+				patterns = append(patterns, p)
+			}
+		}
+	}
+	return patterns
+}
 
 // CopyEmbedFiles copies files referenced by //go:embed directives from
 // the notebook's directory into the generated package directory. This is

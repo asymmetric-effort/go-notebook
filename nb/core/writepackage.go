@@ -33,6 +33,18 @@ func WritePackage(gen GenerateResult, dir string, notebookPath string, modulePat
 		return fmt.Errorf("write main.go: %w", err)
 	}
 
+	// Copy //go:embed files from alongside the notebook into the package dir.
+	patterns := ExtractEmbedPatterns(gen.DefsCode)
+	if len(patterns) > 0 {
+		srcDir := filepath.Dir(notebookPath)
+		if srcDir == "" || srcDir == "." {
+			srcDir = "."
+		}
+		if err := CopyEmbedFiles(patterns, srcDir, dir); err != nil {
+			return fmt.Errorf("copy embed files: %w", err)
+		}
+	}
+
 	return nil
 }
 

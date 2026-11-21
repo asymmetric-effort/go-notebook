@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -180,5 +181,72 @@ func TestCopyFileSuccess(t *testing.T) {
 	data, _ := os.ReadFile(dst)
 	if string(data) != "content" {
 		t.Errorf("copied data = %q", data)
+	}
+}
+
+func TestExtractEmbedPatterns(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{"single pattern", "//go:embed data.txt\nvar data string", []string{"data.txt"}},
+		{"multiple patterns one line", "//go:embed *.txt *.csv\nvar data embed.FS", []string{"*.txt", "*.csv"}},
+		{"multiple directives", "//go:embed a.txt\nvar a string\n//go:embed b.txt\nvar b string", []string{"a.txt", "b.txt"}},
+		{"no directives", "var x = 1\nconst y = 2", nil},
+		{"not a directive", "// go:embed data.txt\nvar data string", nil},
+		{"empty source", "", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractEmbedPatterns(tt.src)
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("pattern[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestWritePackageCopiesEmbedFiles(t *testing.T) {
+	// Create a notebook directory with an embed file.
+	nbDir := t.TempDir()
+	nbPath := filepath.Join(nbDir, "test.md")
+	embedData := "embedded content"
+	os.WriteFile(filepath.Join(nbDir, "data.txt"), []byte(embedData), 0o644)
+
+	// A notebook with //go:embed in the defs block.
+	src := "```go:defs\nimport _ \"embed\"\n\n//go:embed data.txt\nvar data string\n```\n\n```go:notebook name=test exported(val int)\nval = 42\n```\n"
+	os.WriteFile(nbPath, []byte(src), 0o644)
+
+	result := Parse(src)
+	gen, err := Generate(result, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := filepath.Join(t.TempDir(), "pkg")
+	err = WritePackage(gen, outDir, nbPath, "testpkg")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify the embed file was copied.
+	copied, err := os.ReadFile(filepath.Join(outDir, "data.txt"))
+	if err != nil {
+		t.Fatalf("embed file not copied: %v", err)
+	}
+	if string(copied) != embedData {
+		t.Errorf("copied data = %q, want %q", copied, embedData)
+	}
+
+	// Verify the generated source contains the embed directive.
+	mainSrc, _ := os.ReadFile(filepath.Join(outDir, "main.go"))
+	if !strings.Contains(string(mainSrc), "//go:embed") {
+		t.Error("generated source missing //go:embed directive")
 	}
 }
