@@ -224,6 +224,25 @@ func cmdRun(args []string) error {
 		return fmt.Errorf("cell exited with status %d", cellResult.ExitCode)
 	}
 
+	// Write output blocks back into the Markdown file.
+	// For now, the entire stdout is associated with the last named cell.
+	// A full implementation would use per-cell structured output.
+	if cellResult.Stdout != "" {
+		outputs := make(map[string]string)
+		lastNamed := lastNamedCell(result)
+		if lastNamed != "" {
+			outputs[lastNamed] = strings.TrimRight(cellResult.Stdout, "\n")
+		}
+		if len(outputs) > 0 {
+			updated := core.WriteOutputBlocks(string(src), outputs)
+			if updated != string(src) {
+				if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+					return fmt.Errorf("write output blocks: %w", err)
+				}
+			}
+		}
+	}
+
 	fmt.Fprintf(os.Stderr, "gobook run: %s completed successfully\n", path)
 	return nil
 }
@@ -297,6 +316,20 @@ func findModuleRootFromPath(notebookPath string) string {
 		return "."
 	}
 	return filepath.Dir(modFile)
+}
+
+// lastNamedCell returns the name of the last named cell in the notebook.
+func lastNamedCell(result core.ParseResult) string {
+	var last string
+	for _, b := range result.Blocks {
+		if b.Kind == core.BlockCell {
+			attrs, err := core.ParseInfoString(b.Info, b.StartPos.Line)
+			if err == nil && attrs.Name != "" {
+				last = attrs.Name
+			}
+		}
+	}
+	return last
 }
 
 func countCells(result core.ParseResult) int {
