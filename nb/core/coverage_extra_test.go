@@ -167,3 +167,32 @@ func TestExtractEmbedPatternsMultiline(t *testing.T) {
 		t.Errorf("got %d patterns, want 3", len(patterns))
 	}
 }
+
+func TestIsWebURL(t *testing.T) {
+	if !isWebURL("http://example.com") {
+		t.Error("http should be web URL")
+	}
+	if !isWebURL("https://example.com") {
+		t.Error("https should be web URL")
+	}
+	if isWebURL("ftp://example.com") {
+		t.Error("ftp should not be web URL")
+	}
+	if isWebURL("../relative") {
+		t.Error("relative should not be web URL")
+	}
+}
+
+func TestCountCells(t *testing.T) {
+	src := "text\n\n```go:notebook name=a\nval = 1\n```\n\nmore text\n\n```go:notebook name=b\nval = 2\n```\n"
+	result := Parse(src)
+	count := 0
+	for _, b := range result.Blocks {
+		if b.Kind == BlockCell {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Errorf("got %d cells, want 2", count)
+	}
+}
