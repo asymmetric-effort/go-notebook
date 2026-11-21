@@ -110,3 +110,30 @@ func TestRenderLineSVGSinglePoint(t *testing.T) {
 		t.Error("should handle single point")
 	}
 }
+
+func TestRenderSVGDispatcher(t *testing.T) {
+	charts := []interface{}{
+		Line{X: []float64{1}, Series: []Series{{Values: []float64{1}}}},
+		Area{X: []float64{1}, Series: []Series{{Values: []float64{1}}}},
+		Bar{Labels: []string{"a"}, Series: []Series{{Values: []float64{1}}}},
+		Scatter{X: []float64{1}, Y: []float64{1}},
+		Histogram{Values: []float64{1, 2, 3}},
+		Pie{Labels: []string{"a"}, Values: []float64{1}},
+		Heatmap{RowLabels: []string{"r"}, ColLabels: []string{"c"}, Values: [][]float64{{1}}},
+	}
+	for _, c := range charts {
+		svg := RenderSVG(c)
+		if !strings.Contains(svg, "<svg") {
+			t.Errorf("RenderSVG(%T) missing <svg>", c)
+		}
+	}
+}
+
+func TestRenderSVGUnknownPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for unknown type")
+		}
+	}()
+	RenderSVG(42)
+}

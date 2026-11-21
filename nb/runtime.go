@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/asymmetric-effort/go-notebook/nb/chart"
 )
 
 // Context provides the runtime interface for cell bodies. It gives access
@@ -96,6 +98,14 @@ func (ctx *Context) SetSecret(name, value string) {
 		ctx.secrets = make(map[string]string)
 	}
 	ctx.secrets[name] = value
+}
+
+// Chart renders a chart and stores it as SVG display output. Accepts any
+// chart type from the nb/chart package (Line, Area, Bar, Scatter, Histogram,
+// Pie, Heatmap). Unknown types cause a panic.
+func (ctx *Context) Chart(c interface{}) {
+	svg := chart.RenderSVG(c)
+	ctx.Display("image/svg+xml", svg)
 }
 
 // Display records output for rendering. The mime type must be one of the
