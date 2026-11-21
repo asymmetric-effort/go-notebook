@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -81,7 +82,11 @@ func TestMarshalRoundTrip(t *testing.T) {
 	os.WriteFile(filepath.Join(pkgDir, "go.mod"), []byte(goMod), 0o644)
 
 	// Build and run.
-	buildCmd := exec.Command("go", "build", "-o", filepath.Join(dir, "marshaltest"), ".")
+	binName := "marshaltest"
+	if runtime.GOOS == "windows" {
+		binName += ".exe"
+	}
+	buildCmd := exec.Command("go", "build", "-o", filepath.Join(dir, binName), ".")
 	buildCmd.Dir = pkgDir
 	buildCmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod")
 	out, err := buildCmd.CombinedOutput()
@@ -90,7 +95,7 @@ func TestMarshalRoundTrip(t *testing.T) {
 		t.Fatalf("go build failed:\n%s\n---generated---\n%s", out, genSrc)
 	}
 
-	runCmd := exec.Command(filepath.Join(dir, "marshaltest"))
+	runCmd := exec.Command(filepath.Join(dir, binName))
 	runOut, err := runCmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("binary failed:\n%s\n%v", runOut, err)
