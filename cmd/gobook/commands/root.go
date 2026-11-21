@@ -16,6 +16,7 @@ import (
 	"github.com/asymmetric-effort/go-notebook/nb/core"
 	"github.com/asymmetric-effort/go-notebook/nb/crypto"
 	"github.com/asymmetric-effort/go-notebook/nb/kernel"
+	"github.com/asymmetric-effort/go-notebook/nb/server"
 	"github.com/spf13/cobra"
 )
 
@@ -89,6 +90,18 @@ var runCmd = &cobra.Command{
 	},
 }
 
+var serveAddr string
+
+var serveCmd = &cobra.Command{
+	Use:   "serve <notebook.md>",
+	Short: "Start the notebook editor server",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		srv := server.New(args[0], serveAddr)
+		return srv.ListenAndServe()
+	},
+}
+
 var vetCmd = &cobra.Command{
 	Use:   "vet <notebook.md>",
 	Short: "Run go vet on a notebook's generated code",
@@ -108,7 +121,9 @@ func init() {
 
 	genCmd.Flags().StringVar(&genOutDir, "out", "gen", "output directory")
 
-	rootCmd.AddCommand(buildCmd, checkCmd, fmtCmd, genCmd, runCmd, vetCmd)
+	serveCmd.Flags().StringVar(&serveAddr, "addr", "localhost:8080", "listen address")
+
+	rootCmd.AddCommand(buildCmd, checkCmd, fmtCmd, genCmd, runCmd, serveCmd, vetCmd)
 }
 
 // Execute runs the gobook CLI.
