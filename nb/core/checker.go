@@ -136,6 +136,8 @@ func checkCell(b Block, attrs CellAttrs, upstream []checkerCellInfo) []error {
 
 	// Rule 8: Files opened only through ctx.Open and declared in reads.
 	// Rule 9: Files created only through ctx.Create and declared in writes.
+	// Rule 11: Secrets read only through ctx.Secret and declared in secrets.
+	// Rule 12: No exported field whose value flows from ctx.Secret (best effort).
 	checkFileAccess(b, attrs, &errs)
 
 	// Rule 10: Reject direct os.Open, os.ReadFile, os.Create, os.WriteFile calls.
@@ -359,8 +361,20 @@ func checkFileAccess(b Block, attrs CellAttrs, errs *[]error) {
 	for _, w := range attrs.Writes {
 		writesSet[w] = true
 	}
+	secretsSet := make(map[string]bool)
+	for _, s := range attrs.Secrets {
+		secretsSet[s] = true
+	}
+
+	// Parse exported fields for rule 12 checking.
+	exportedFields := exportedFieldNames(attrs.Exported)
 
 	ast.Inspect(f, func(n ast.Node) bool {
+		// Rule 12: Check for direct assignment of ctx.Secret to exported fields.
+		if assign, ok := n.(*ast.AssignStmt); ok {
+			checkSecretToExport(assign, exportedFields, b, fset, errs)
+		}
+
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
@@ -406,9 +420,82 @@ func checkFileAccess(b Block, attrs CellAttrs, errs *[]error) {
 					}
 				}
 			}
+		case "Secret":
+			// Rule 11: secret must be in secrets()
+			if len(call.Args) > 0 {
+				if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+					name := strings.Trim(lit.Value, "\"")
+					if !secretsSet[name] {
+						line := b.BodyPos.Line + fset.Position(call.Pos()).Line - 2
+						*errs = append(*errs, &CheckError{
+							Line:    line,
+							Message: fmt.Sprintf("ctx.Secret(%q) but %q is not in secrets() (rule 11). Declare it: secrets(%s)", name, name, name),
+						})
+					}
+				}
+			}
 		}
 		return true
 	})
+}
+
+// exportedFieldNames extracts field names from an exported() declaration.
+// Input like "val int, msg string" returns {"val": true, "msg": true}.
+func exportedFieldNames(exported string) map[string]bool {
+	fields := make(map[string]bool)
+	if exported == "" {
+		return fields
+	}
+	for _, part := range strings.Split(exported, ",") {
+		part = strings.TrimSpace(part)
+		tokens := strings.Fields(part)
+		if len(tokens) >= 1 {
+			fields[tokens[0]] = true
+		}
+	}
+	return fields
+}
+
+// checkSecretToExport detects direct assignment of ctx.Secret() return values
+// to exported fields (rule 12, best effort).
+func checkSecretToExport(assign *ast.AssignStmt, exportedFields map[string]bool, b Block, fset *token.FileSet, errs *[]error) {
+	if len(exportedFields) == 0 {
+		return
+	}
+	for i, rhs := range assign.Rhs {
+		if !isCtxSecretCall(rhs) {
+			continue
+		}
+		// Check if the LHS at the same position is an exported field.
+		if i < len(assign.Lhs) {
+			if ident, ok := assign.Lhs[i].(*ast.Ident); ok {
+				if exportedFields[ident.Name] {
+					line := b.BodyPos.Line + fset.Position(assign.Pos()).Line - 2
+					*errs = append(*errs, &CheckError{
+						Line:    line,
+						Message: fmt.Sprintf("exported field %q assigned from ctx.Secret (rule 12). Secrets must not reach exported values.", ident.Name),
+					})
+				}
+			}
+		}
+	}
+}
+
+// isCtxSecretCall checks if an expression is a ctx.Secret(...) call.
+func isCtxSecretCall(expr ast.Expr) bool {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	ident, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	return ident.Name == "ctx" && sel.Sel.Name == "Secret"
 }
 
 // hasEmbedDirective checks if a var declaration has a //go:embed comment
