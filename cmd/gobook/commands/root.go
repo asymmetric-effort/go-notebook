@@ -137,15 +137,21 @@ func cmdGen(args []string) error {
 	if err != nil {
 		return fmt.Errorf("generate %s: %w", path, err)
 	}
-	// Print generated code summary.
-	fmt.Printf("Generated %d cells from %s\n", len(gen.Cells), path)
-	for _, c := range gen.Cells {
-		if c.StructName != "" {
-			fmt.Printf("  %s -> %s\n", c.FuncName, c.StructName)
-		} else {
-			fmt.Printf("  %s (display only)\n", c.FuncName)
+
+	// Determine output directory.
+	outDir := "gen"
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == "--out" {
+			outDir = args[i+1]
 		}
 	}
+
+	// Write the generated package to disk.
+	if err := core.WritePackage(gen, outDir, path, "gobook-gen"); err != nil {
+		return fmt.Errorf("write package: %w", err)
+	}
+
+	fmt.Printf("gobook gen: wrote %d cells to %s/\n", len(gen.Cells), outDir)
 	return nil
 }
 
@@ -231,14 +237,50 @@ func cmdVet(args []string) error {
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
+
+	// First run the checker.
 	result := core.Parse(string(src))
 	errs := core.Check(result)
 	if len(errs) > 0 {
 		for _, e := range errs {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", path, e)
 		}
-		return fmt.Errorf("%d findings", len(errs))
+		return fmt.Errorf("%d check findings", len(errs))
 	}
+
+	// Generate the package and run go vet on it.
+	gen, err := core.Generate(result, "main")
+	if err != nil {
+		return fmt.Errorf("generate %s: %w", path, err)
+	}
+
+	tmpDir, err := os.MkdirTemp("", "gobook-vet-*")
+	if err != nil {
+		return fmt.Errorf("create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	pkgDir := filepath.Join(tmpDir, "pkg")
+	if err := core.WritePackage(gen, pkgDir, path, "gobook-vet"); err != nil {
+		return fmt.Errorf("write package: %w", err)
+	}
+
+	moduleRoot := findModuleRootFromPath(path)
+	goModPath := filepath.Join(pkgDir, "go.mod")
+	goModData, _ := os.ReadFile(goModPath)
+	goModStr := string(goModData) + "\nreplace github.com/asymmetric-effort/go-notebook => " + moduleRoot + "\n"
+	os.WriteFile(goModPath, []byte(goModStr), 0o644)
+
+	cmd := exec.Command("go", "vet", "./...")
+	cmd.Dir = pkgDir
+	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		fmt.Fprint(os.Stderr, string(out))
+		return fmt.Errorf("go vet found issues")
+	}
+
+	fmt.Fprintf(os.Stderr, "gobook vet: %s passed\n", path)
 	return nil
 }
 

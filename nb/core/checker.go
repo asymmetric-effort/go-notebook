@@ -117,6 +117,9 @@ func checkDefs(b Block) []error {
 func checkCell(b Block, attrs CellAttrs, upstream []checkerCellInfo) []error {
 	var errs []error
 
+	// Rule 4: Cell bodies use only bare return.
+	checkBareReturn(b, &errs)
+
 	// Rule 1: exported(...) requires name.
 	if attrs.Exported != "" && attrs.Name == "" {
 		errs = append(errs, &CheckError{
@@ -153,6 +156,31 @@ func checkCell(b Block, attrs CellAttrs, upstream []checkerCellInfo) []error {
 	}
 
 	return errs
+}
+
+// checkBareReturn enforces rule 4: cell bodies may only use `return`,
+// not `return <value>`.
+func checkBareReturn(b Block, errs *[]error) {
+	src := "package _\nfunc _() {\n" + b.Body + "\n}\n"
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", src, 0)
+	if err != nil {
+		return
+	}
+	ast.Inspect(f, func(n ast.Node) bool {
+		ret, ok := n.(*ast.ReturnStmt)
+		if !ok {
+			return true
+		}
+		if len(ret.Results) > 0 {
+			line := b.BodyPos.Line + fset.Position(ret.Pos()).Line - 2
+			*errs = append(*errs, &CheckError{
+				Line:    line,
+				Message: "cell bodies may only use bare return, not return <value> (rule 4). The deferred function sets the result.",
+			})
+		}
+		return true
+	})
 }
 
 // imageRefRegex matches Markdown image references: ![alt](path)

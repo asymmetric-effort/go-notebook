@@ -44,3 +44,4 @@ typst-module/target/
 
 # Generated code
 /gen/
+cmd/gobook/commands/gen/

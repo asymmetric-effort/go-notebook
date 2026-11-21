@@ -5,6 +5,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -143,5 +144,41 @@ func TestCopyEmbedFilesMissingSrc(t *testing.T) {
 	// No matches should be fine (glob returns empty).
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCopyFileReadOnlyDest(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("read-only dirs work differently on Windows")
+	}
+	srcDir := t.TempDir()
+	src := filepath.Join(srcDir, "file.txt")
+	os.WriteFile(src, []byte("data"), 0o644)
+
+	// Create read-only directory so os.Create fails.
+	roDir := filepath.Join(t.TempDir(), "readonly")
+	os.MkdirAll(roDir, 0o555)
+	defer os.Chmod(roDir, 0o755)
+
+	err := copyFile(src, filepath.Join(roDir, "file.txt"))
+	if err == nil {
+		t.Error("expected error when dest dir is read-only")
+	}
+}
+
+func TestCopyFileSuccess(t *testing.T) {
+	srcDir := t.TempDir()
+	dstDir := t.TempDir()
+	src := filepath.Join(srcDir, "file.txt")
+	os.WriteFile(src, []byte("content"), 0o644)
+
+	dst := filepath.Join(dstDir, "copy.txt")
+	err := copyFile(src, dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(dst)
+	if string(data) != "content" {
+		t.Errorf("copied data = %q", data)
 	}
 }

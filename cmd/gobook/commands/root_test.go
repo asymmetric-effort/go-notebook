@@ -148,7 +148,7 @@ func TestCmdRunPanicRecovery(t *testing.T) {
 func TestCmdVet(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.md")
-	src := "```go:notebook name=test\nval := 1\n```\n"
+	src := "```go:notebook name=test exported(val int)\nval = 42\n```\n"
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
