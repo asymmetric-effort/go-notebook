@@ -131,8 +131,116 @@ func TestRunDefaultOutput(t *testing.T) {
 func TestBuildDocument(t *testing.T) {
 	src := "# Title\n\n```go:defs\nimport \"fmt\"\n```\n\n```go:notebook name=test\nfmt.Println(\"hi\")\n```\n\n```output name=test\nhi\n```\n"
 	result := core.Parse(src)
-	doc := buildDocument(result)
+	doc := buildDocument(result, "hi", false)
 	if doc.Len() == 0 {
 		t.Error("document should have elements")
+	}
+}
+
+func TestBuildDocumentWithOutput(t *testing.T) {
+	src := "# Title\n\n```go:notebook name=test exported(val int)\nval = 42\n```\n"
+	result := core.Parse(src)
+	doc := buildDocument(result, "result: 42", false)
+	// Should have prose + display.
+	if doc.Len() < 2 {
+		t.Errorf("document should have at least 2 elements, got %d", doc.Len())
+	}
+}
+
+func TestRunWithCellExecution(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "```go:defs\nimport \"fmt\"\n```\n\n```go:notebook name=test exported(val int)\nval = 42\nfmt.Println(\"hello from build\")\n```\n"
+	if err := os.WriteFile(notebook, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outPath := filepath.Join(dir, "out.html")
+	err := Run(notebook, Options{Format: "html", Output: outPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "hello from build") {
+		t.Error("expected cell output in report")
+	}
+}
+
+func TestRunWithTimeout(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "```go:notebook name=test exported(val int)\nval = 1\n```\n"
+	if err := os.WriteFile(notebook, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outPath := filepath.Join(dir, "out.html")
+	err := Run(notebook, Options{Format: "html", Output: outPath, Timeout: "30s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunWithPanicCell(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "```go:notebook name=test exported(val int)\npanic(\"oops\")\n```\n"
+	if err := os.WriteFile(notebook, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outPath := filepath.Join(dir, "out.html")
+	err := Run(notebook, Options{Format: "html", Output: outPath})
+	// The build should still produce a partial report.
+	if _, statErr := os.Stat(outPath); statErr != nil {
+		t.Error("partial report should be written even on failure")
+	}
+	_ = err // Error is expected.
+}
+
+func TestRunWriteError(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	if err := os.WriteFile(notebook, []byte("# Title\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Write to an impossible path.
+	err := Run(notebook, Options{Output: "/nonexistent/dir/out.html"})
+	if err == nil {
+		t.Error("expected error for unwritable output")
+	}
+}
+
+func TestFindModuleRoot(t *testing.T) {
+	root := findModuleRoot()
+	if root == "" {
+		t.Error("findModuleRoot should not return empty")
+	}
+	// Should end with go-notebook or be "." in test context.
+	if root != "." && !strings.HasSuffix(root, "go-notebook") {
+		t.Logf("findModuleRoot = %q (may be valid)", root)
+	}
+}
+
+func TestBuildDocumentStripsOutput(t *testing.T) {
+	src := "```go:notebook name=test exported(val int)\nval = 1\n```\n\n```output name=test\nold output\n```\n"
+	result := core.Parse(src)
+	doc := buildDocument(result, "new output", false)
+	// Output blocks should be stripped; cell output comes from execution.
+	found := false
+	for _, e := range doc.Elements {
+		if strings.Contains(e.Content, "old output") {
+			t.Error("old output block should be stripped")
+		}
+		if strings.Contains(e.Content, "new output") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("new output should be present")
 	}
 }

@@ -195,6 +195,31 @@ func TestEnsureGitignoreNoDuplicate(t *testing.T) {
 	}
 }
 
+func TestEnsureGitignoreEmptyDir(t *testing.T) {
+	// Save current dir and change to temp.
+	orig, _ := os.Getwd()
+	dir := t.TempDir()
+	os.Chdir(dir)
+	defer os.Chdir(orig)
+
+	ensureGitignore("", "test.secrets")
+	content, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err == nil && !strings.Contains(string(content), "test.secrets") {
+		t.Error("empty dir should default to '.'")
+	}
+}
+
+func TestEnsureGitignoreNoTrailingNewline(t *testing.T) {
+	dir := t.TempDir()
+	// File without trailing newline.
+	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("*.exe"), 0o644)
+	ensureGitignore(dir, "test.secrets")
+	content, _ := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if !strings.Contains(string(content), "\ntest.secrets") {
+		t.Error("should add newline before pattern")
+	}
+}
+
 func TestResolveSecretUpdatesGitignore(t *testing.T) {
 	dir := t.TempDir()
 	notebook := filepath.Join(dir, "test.md")
