@@ -16,6 +16,7 @@ import (
 	"github.com/asymmetric-effort/go-notebook/nb/core"
 	"github.com/asymmetric-effort/go-notebook/nb/crypto"
 	"github.com/asymmetric-effort/go-notebook/nb/kernel"
+	"github.com/asymmetric-effort/go-notebook/nb/lsp"
 	"github.com/asymmetric-effort/go-notebook/nb/server"
 	"github.com/spf13/cobra"
 )
@@ -102,6 +103,17 @@ var serveCmd = &cobra.Command{
 	},
 }
 
+var goplsPath string
+
+var lspCmd = &cobra.Command{
+	Use:   "lsp",
+	Short: "Start the LSP proxy to gopls",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		proxy := lsp.New(goplsPath)
+		return proxy.Start()
+	},
+}
+
 var vetCmd = &cobra.Command{
 	Use:   "vet <notebook.md>",
 	Short: "Run go vet on a notebook's generated code",
@@ -123,7 +135,9 @@ func init() {
 
 	serveCmd.Flags().StringVar(&serveAddr, "addr", "localhost:8080", "listen address")
 
-	rootCmd.AddCommand(buildCmd, checkCmd, fmtCmd, genCmd, runCmd, serveCmd, vetCmd)
+	lspCmd.Flags().StringVar(&goplsPath, "gopls", "gopls", "path to gopls binary")
+
+	rootCmd.AddCommand(buildCmd, checkCmd, fmtCmd, genCmd, lspCmd, runCmd, serveCmd, vetCmd)
 }
 
 // Execute runs the gobook CLI.
