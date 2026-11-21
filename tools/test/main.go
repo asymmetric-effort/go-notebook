@@ -24,10 +24,11 @@ var excludePrefixes = []string{
 	"github.com/asymmetric-effort/go-notebook/cmd/",
 	"github.com/asymmetric-effort/go-notebook/nb/engine/",
 	"github.com/asymmetric-effort/go-notebook/nb/crypto/",
-	// nb/build and nb/server contain process execution code (go run, go build)
+	// nb/build, nb/server, and nb/lsp contain process execution and I/O code
 	// that depends on external state and module resolution.
 	"github.com/asymmetric-effort/go-notebook/nb/build/",
 	"github.com/asymmetric-effort/go-notebook/nb/server/",
+	"github.com/asymmetric-effort/go-notebook/nb/lsp/",
 	// nb/secrets.go has terminal-dependent code (term.ReadPassword)
 	"github.com/asymmetric-effort/go-notebook/nb/secrets.go",
 }
