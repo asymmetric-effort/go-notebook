@@ -63,7 +63,12 @@ func TestMarkdownToTypstHeadings(t *testing.T) {
 		{"# Title", "= Title"},
 		{"## Section", "== Section"},
 		{"### Sub", "=== Sub"},
+		{"#### H4", "==== H4"},
+		{"##### H5", "===== H5"},
+		{"###### H6", "====== H6"},
 		{"- item", "- item"},
+		{"* item", "- item"},
+		{"+ item", "- item"},
 		{"plain text", "plain text"},
 	}
 	for _, tt := range tests {
@@ -71,6 +76,76 @@ func TestMarkdownToTypstHeadings(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("markdownToTypst(%q) = %q, want %q", tt.md, got, tt.want)
 		}
+	}
+}
+
+func TestMarkdownToTypstOrderedList(t *testing.T) {
+	got := markdownToTypst("1. first\n2. second")
+	if !strings.Contains(got, "+ first") {
+		t.Errorf("ordered list: %q", got)
+	}
+}
+
+func TestMarkdownToTypstBlockquote(t *testing.T) {
+	got := markdownToTypst("> quoted text")
+	if !strings.Contains(got, "#quote[quoted text]") {
+		t.Errorf("blockquote: %q", got)
+	}
+}
+
+func TestMarkdownToTypstThematicBreak(t *testing.T) {
+	for _, input := range []string{"---", "***", "___"} {
+		got := markdownToTypst(input)
+		if !strings.Contains(got, "#line(length: 100%)") {
+			t.Errorf("thematic break %q: %q", input, got)
+		}
+	}
+}
+
+func TestMarkdownToTypstCodeBlock(t *testing.T) {
+	got := markdownToTypst("```\ncode\n```")
+	if !strings.Contains(got, "```") || !strings.Contains(got, "code") {
+		t.Errorf("code block: %q", got)
+	}
+}
+
+func TestMarkdownToTypstInlineCode(t *testing.T) {
+	got := markdownToTypst("Use `fmt.Println` here")
+	if !strings.Contains(got, "#raw(\"fmt.Println\")") {
+		t.Errorf("inline code: %q", got)
+	}
+}
+
+func TestMarkdownToTypstStrong(t *testing.T) {
+	got := markdownToTypst("**bold**")
+	if !strings.Contains(got, "*bold*") {
+		t.Errorf("strong: %q", got)
+	}
+}
+
+func TestMarkdownToTypstLink(t *testing.T) {
+	got := markdownToTypst("[Go](https://go.dev)")
+	if !strings.Contains(got, "#link(\"https://go.dev\")[Go]") {
+		t.Errorf("link: %q", got)
+	}
+}
+
+func TestMarkdownToTypstImage(t *testing.T) {
+	got := markdownToTypst("![alt](image.png)")
+	if !strings.Contains(got, "#image(\"image.png\")") {
+		t.Errorf("image: %q", got)
+	}
+}
+
+func TestIsTypstThematicBreak(t *testing.T) {
+	if !isTypstThematicBreak("---") {
+		t.Error("--- should be thematic break")
+	}
+	if isTypstThematicBreak("--") {
+		t.Error("-- should not be thematic break")
+	}
+	if isTypstThematicBreak("-*-") {
+		t.Error("mixed chars should not be thematic break")
 	}
 }
 

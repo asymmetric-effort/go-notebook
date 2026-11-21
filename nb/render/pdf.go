@@ -4,6 +4,7 @@ package render
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/asymmetric-effort/go-notebook/nb/document"
@@ -42,27 +43,105 @@ func Typst(doc *document.Document) string {
 	return buf.String()
 }
 
-// markdownToTypst does a basic conversion from Markdown to Typst markup.
-// A full implementation would handle all CommonMark features.
+// markdownToTypst converts Markdown prose to Typst markup. Handles headings
+// (H1-H6), unordered/ordered lists, fenced code blocks, blockquotes,
+// thematic breaks, emphasis, strong, code spans, and links.
 func markdownToTypst(md string) string {
 	lines := strings.Split(md, "\n")
 	var result []string
+	inCodeBlock := false
 
 	for _, line := range lines {
-		if strings.HasPrefix(line, "# ") {
-			result = append(result, fmt.Sprintf("= %s", line[2:]))
-		} else if strings.HasPrefix(line, "## ") {
-			result = append(result, fmt.Sprintf("== %s", line[3:]))
-		} else if strings.HasPrefix(line, "### ") {
-			result = append(result, fmt.Sprintf("=== %s", line[4:]))
-		} else if strings.HasPrefix(line, "- ") {
-			result = append(result, fmt.Sprintf("- %s", line[2:]))
-		} else if strings.HasPrefix(line, "```") {
-			result = append(result, "```")
-		} else {
+		// Fenced code blocks pass through verbatim.
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			if inCodeBlock {
+				result = append(result, "```")
+				inCodeBlock = false
+			} else {
+				result = append(result, "```")
+				inCodeBlock = true
+			}
+			continue
+		}
+		if inCodeBlock {
 			result = append(result, line)
+			continue
+		}
+
+		// ATX headings.
+		if strings.HasPrefix(line, "###### ") {
+			result = append(result, fmt.Sprintf("====== %s", typstInline(line[7:])))
+		} else if strings.HasPrefix(line, "##### ") {
+			result = append(result, fmt.Sprintf("===== %s", typstInline(line[6:])))
+		} else if strings.HasPrefix(line, "#### ") {
+			result = append(result, fmt.Sprintf("==== %s", typstInline(line[5:])))
+		} else if strings.HasPrefix(line, "### ") {
+			result = append(result, fmt.Sprintf("=== %s", typstInline(line[4:])))
+		} else if strings.HasPrefix(line, "## ") {
+			result = append(result, fmt.Sprintf("== %s", typstInline(line[3:])))
+		} else if strings.HasPrefix(line, "# ") {
+			result = append(result, fmt.Sprintf("= %s", typstInline(line[2:])))
+		} else if strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") || strings.HasPrefix(line, "+ ") {
+			// Unordered list items.
+			result = append(result, fmt.Sprintf("- %s", typstInline(line[2:])))
+		} else if len(line) > 2 && line[0] >= '0' && line[0] <= '9' && (strings.Contains(line[:3], ". ") || strings.Contains(line[:4], ". ")) {
+			// Ordered list items.
+			idx := strings.Index(line, ". ")
+			if idx > 0 && idx < 10 {
+				result = append(result, fmt.Sprintf("+ %s", typstInline(line[idx+2:])))
+			} else {
+				result = append(result, typstInline(line))
+			}
+		} else if strings.HasPrefix(line, "> ") {
+			// Blockquote.
+			result = append(result, fmt.Sprintf("#quote[%s]", typstInline(line[2:])))
+		} else if isTypstThematicBreak(line) {
+			result = append(result, "#line(length: 100%)")
+		} else {
+			result = append(result, typstInline(line))
 		}
 	}
 
 	return strings.Join(result, "\n")
+}
+
+// typstInline converts inline Markdown elements to Typst: emphasis, strong,
+// code spans, and links.
+func typstInline(text string) string {
+	// Code spans: `code` -> #raw("code")
+	text = typstCodeSpanRe.ReplaceAllStringFunc(text, func(s string) string {
+		code := strings.Trim(s, "`")
+		return fmt.Sprintf("#raw(\"%s\")", strings.ReplaceAll(code, "\"", "\\\""))
+	})
+	// Images must be before links (![...] before [...]).
+	text = typstImageRe.ReplaceAllString(text, "#image(\"${2}\")")
+	// Links: [text](url) -> #link("url")[text]
+	text = typstLinkRe.ReplaceAllString(text, "#link(\"${2}\")[${1}]")
+	// Strong must be before emphasis (** before *).
+	text = typstStrongStarRe.ReplaceAllString(text, "*${1}*")
+	text = typstStrongUnderRe.ReplaceAllString(text, "*${1}*")
+	return text
+}
+
+var typstCodeSpanRe = regexp.MustCompile("`[^`]+`")
+var typstStrongStarRe = regexp.MustCompile(`\*\*([^*]+)\*\*`)
+var typstStrongUnderRe = regexp.MustCompile(`__([^_]+)__`)
+var typstLinkRe = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
+var typstImageRe = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
+
+func isTypstThematicBreak(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if len(trimmed) < 3 {
+		return false
+	}
+	ch := trimmed[0]
+	if ch != '-' && ch != '*' && ch != '_' {
+		return false
+	}
+	for _, c := range trimmed {
+		if c != rune(ch) && c != ' ' {
+			return false
+		}
+	}
+	return true
 }

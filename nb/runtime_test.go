@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -121,6 +122,9 @@ func TestContextCreateSubdir(t *testing.T) {
 }
 
 func TestContextCreateInvalidPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("path semantics differ on Windows")
+	}
 	ctx := NewContext(nil)
 	ctx.SetOutputDir("/dev/null/impossible")
 	_, err := ctx.Create("file.txt")

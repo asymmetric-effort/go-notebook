@@ -25,3 +25,27 @@ func TestMarkdownToTypstPlainText(t *testing.T) {
 		t.Errorf("plain text should pass through: %q", result)
 	}
 }
+
+func TestTypstCodeBlockToggle(t *testing.T) {
+	// Enter and exit code block.
+	got := markdownToTypst("```go\ncode\n```\ntext")
+	if !strings.Contains(got, "code") {
+		t.Error("code block content")
+	}
+	if !strings.Contains(got, "text") {
+		t.Error("text after code block")
+	}
+}
+
+func TestIsTypstThematicBreakShort(t *testing.T) {
+	if isTypstThematicBreak("a") {
+		t.Error("single char should not be break")
+	}
+}
+
+func TestTypstInlineEmpty(t *testing.T) {
+	got := typstInline("")
+	if got != "" {
+		t.Errorf("empty inline = %q", got)
+	}
+}
