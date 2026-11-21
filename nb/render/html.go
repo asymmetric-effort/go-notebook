@@ -7,6 +7,7 @@ import (
 	"html"
 	"strings"
 
+	"github.com/asymmetric-effort/go-notebook/nb/commonmark"
 	"github.com/asymmetric-effort/go-notebook/nb/document"
 )
 
@@ -21,10 +22,9 @@ func HTML(doc *document.Document, title string) string {
 	for _, e := range doc.Elements {
 		switch e.Kind {
 		case document.KindProse:
-			// Prose is passed through as HTML. A full CommonMark renderer
-			// would convert Markdown to HTML here. For now, wrap in a div.
+			// Convert Markdown prose to HTML via the CommonMark renderer.
 			body.WriteString("<div class=\"prose\">")
-			body.WriteString(html.EscapeString(e.Content))
+			body.WriteString(commonmark.ToHTML(e.Content))
 			body.WriteString("</div>\n")
 		case document.KindDisplay:
 			if e.Mime == "text/markdown" {
