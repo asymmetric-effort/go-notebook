@@ -201,3 +201,49 @@ func TestExecute(t *testing.T) {
 		t.Errorf("Execute(--help) = %v", err)
 	}
 }
+
+func TestResolvePassphraseNone(t *testing.T) {
+	// No flags set — no passphrase needed.
+	pass, err := resolvePassphrase(false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pass != "" {
+		t.Errorf("expected empty passphrase, got %q", pass)
+	}
+}
+
+func TestResolvePassphraseFromFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pass.txt")
+	os.WriteFile(path, []byte("a-long-enough-passphrase\n"), 0o600)
+
+	pass, err := resolvePassphrase(false, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pass != "a-long-enough-passphrase" {
+		t.Errorf("passphrase = %q", pass)
+	}
+}
+
+func TestResolvePassphraseFileTooShort(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pass.txt")
+	os.WriteFile(path, []byte("short\n"), 0o600)
+
+	_, err := resolvePassphrase(false, path)
+	if err == nil {
+		t.Error("expected error for short passphrase")
+	}
+	if !strings.Contains(err.Error(), "passphrase rejected") {
+		t.Errorf("error = %v, want 'passphrase rejected'", err)
+	}
+}
+
+func TestResolvePassphraseFileMissing(t *testing.T) {
+	_, err := resolvePassphrase(false, "/nonexistent/pass.txt")
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
