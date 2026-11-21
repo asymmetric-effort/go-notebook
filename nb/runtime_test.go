@@ -7,8 +7,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/asymmetric-effort/go-notebook/nb/chart"
 )
 
 func TestContextOpen(t *testing.T) {
@@ -180,6 +183,62 @@ func TestContextSecretNoSecrets(t *testing.T) {
 	if got := ctx.Secret("anything"); got != "" {
 		t.Errorf("Secret on nil map = %q, want empty", got)
 	}
+}
+
+func TestContextChart(t *testing.T) {
+	ctx := NewContext(nil)
+	c := chart.Bar{
+		Title:  "Test",
+		Labels: []string{"A", "B"},
+		Series: []chart.Series{{Name: "s1", Values: []float64{10, 20}}},
+	}
+	ctx.Chart(c)
+	displays := ctx.Displays()
+	if len(displays) != 1 {
+		t.Fatalf("got %d displays, want 1", len(displays))
+	}
+	if displays[0].Mime != "image/svg+xml" {
+		t.Errorf("mime = %q, want image/svg+xml", displays[0].Mime)
+	}
+	if !strings.Contains(displays[0].Data, "<svg") {
+		t.Error("chart output should contain SVG")
+	}
+}
+
+func TestContextChartAllTypes(t *testing.T) {
+	ctx := NewContext(nil)
+	charts := []interface{}{
+		chart.Line{Title: "line", X: []float64{1, 2}, Series: []chart.Series{{Values: []float64{1, 2}}}},
+		chart.Area{Title: "area", X: []float64{1, 2}, Series: []chart.Series{{Values: []float64{1, 2}}}},
+		chart.Bar{Title: "bar", Labels: []string{"a"}, Series: []chart.Series{{Values: []float64{1}}}},
+		chart.Scatter{Title: "scatter", X: []float64{1}, Y: []float64{1}},
+		chart.Histogram{Title: "hist", Values: []float64{1, 2, 3, 4, 5}},
+		chart.Pie{Title: "pie", Labels: []string{"a", "b"}, Values: []float64{30, 70}},
+		chart.Heatmap{Title: "heat", RowLabels: []string{"r"}, ColLabels: []string{"c"}, Values: [][]float64{{1}}},
+	}
+	for _, c := range charts {
+		ctx.Chart(c)
+	}
+	displays := ctx.Displays()
+	if len(displays) != 7 {
+		t.Fatalf("got %d displays, want 7", len(displays))
+	}
+	for i, d := range displays {
+		if !strings.Contains(d.Data, "<svg") {
+			t.Errorf("chart[%d] missing SVG", i)
+		}
+	}
+}
+
+func TestContextChartUnknownType(t *testing.T) {
+	ctx := NewContext(nil)
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Error("expected panic for unknown chart type")
+		}
+	}()
+	ctx.Chart("not a chart")
 }
 
 // Verify fs.File interface satisfaction.

@@ -4,6 +4,8 @@
 // Authors pass data to ctx.Chart and the tooling renders it.
 package chart
 
+import "fmt"
+
 // Series holds a named data series for line, area and bar charts.
 type Series struct {
 	Name   string
@@ -69,4 +71,26 @@ type Heatmap struct {
 	RowLabels []string
 	ColLabels []string
 	Values    [][]float64
+}
+
+// RenderSVG renders any chart type to an SVG string. Panics on unknown types.
+func RenderSVG(c interface{}) string {
+	switch v := c.(type) {
+	case Line:
+		return RenderLineSVG(v)
+	case Area:
+		return RenderAreaSVG(v)
+	case Bar:
+		return RenderBarSVG(v)
+	case Scatter:
+		return RenderScatterSVG(v)
+	case Histogram:
+		return RenderHistogramSVG(v)
+	case Pie:
+		return RenderPieSVG(v)
+	case Heatmap:
+		return RenderHeatmapSVG(v)
+	default:
+		panic(fmt.Sprintf("unknown chart type: %T", c))
+	}
 }
