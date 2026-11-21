@@ -44,25 +44,51 @@ func assembleSource(gen GenerateResult, notebookPath string) string {
 	// Package declaration.
 	fmt.Fprintf(&buf, "package %s\n\n", gen.PackageName)
 
-	// Imports — always include the nb runtime.
-	fmt.Fprintf(&buf, "import (\n")
-	fmt.Fprintf(&buf, "\tnb \"github.com/asymmetric-effort/go-notebook/nb\"\n")
-	if gen.DefsCode != "" {
-		// Extract imports from defs and add them.
-		// For now, include the defs code which may contain its own import block.
+	// Imports — always include the nb runtime and marshal dependencies.
+	hasMarshal := false
+	for _, cell := range gen.Cells {
+		if cell.StructCode != "" {
+			hasMarshal = true
+			break
+		}
 	}
+	fmt.Fprintf(&buf, "import (\n")
+	if hasMarshal {
+		// Only add marshal imports that aren't already in the defs code.
+		if !strings.Contains(gen.DefsCode, "\"bytes\"") {
+			fmt.Fprintf(&buf, "\t\"bytes\"\n")
+		}
+		if !strings.Contains(gen.DefsCode, "\"encoding/gob\"") {
+			fmt.Fprintf(&buf, "\t\"encoding/gob\"\n")
+		}
+		if !strings.Contains(gen.DefsCode, "\"fmt\"") {
+			fmt.Fprintf(&buf, "\t\"fmt\"\n")
+		}
+	}
+	fmt.Fprintf(&buf, "\tnb \"github.com/asymmetric-effort/go-notebook/nb\"\n")
 	fmt.Fprintf(&buf, ")\n\n")
 
 	// Defs code (types, constants, functions from go:defs blocks).
+	// Must come before var declarations since defs may contain imports.
 	if gen.DefsCode != "" {
 		fmt.Fprintf(&buf, "// --- go:defs ---\n\n")
 		fmt.Fprintf(&buf, "%s\n\n", gen.DefsCode)
 	}
 
-	// Cell structs and functions.
+	if hasMarshal {
+		// Suppress unused import warnings when no marshal calls happen.
+		fmt.Fprintf(&buf, "var _ = bytes.NewReader\nvar _ = gob.NewEncoder\nvar _ = fmt.Sprintf\n\n")
+	}
+
+	// Cell structs, marshal methods, and functions.
 	for _, cell := range gen.Cells {
 		if cell.StructCode != "" {
 			fmt.Fprintf(&buf, "%s\n\n", cell.StructCode)
+			// Generate marshal methods for named cells (deep copy support).
+			fields := extractStructFields(cell.StructCode)
+			if len(fields) > 0 {
+				fmt.Fprintf(&buf, "%s\n\n", GenerateMarshal(cell.StructName, fields))
+			}
 		}
 		fmt.Fprintf(&buf, "%s\n\n", cell.FuncCode)
 	}
@@ -71,6 +97,21 @@ func assembleSource(gen GenerateResult, notebookPath string) string {
 	buf.WriteString(generateMain(gen, notebookPath))
 
 	return buf.String()
+}
+
+// extractStructFields extracts field declarations from a struct definition string.
+// Input like "type testCell struct {\n\terr error\n\tval int\n}" returns ["err error", "val int"].
+func extractStructFields(structCode string) []string {
+	var fields []string
+	lines := strings.Split(structCode, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "type ") || trimmed == "}" {
+			continue
+		}
+		fields = append(fields, trimmed)
+	}
+	return fields
 }
 
 // generateMain creates the main() function that executes cells in document

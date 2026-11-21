@@ -43,6 +43,49 @@ func TestDeepCopyCode(t *testing.T) {
 	}
 }
 
+func TestGenerateMarshalSkipsErrField(t *testing.T) {
+	// The err field is an interface (error) that gob can't encode when nil.
+	// GenerateMarshal must skip it.
+	code := GenerateMarshal("dataCell", []string{"err error", "val int", "msg string"})
+	if strings.Contains(code, "enc.Encode(c.err)") {
+		t.Error("marshal should skip err field")
+	}
+	if strings.Contains(code, "dec.Decode(&c.err)") {
+		t.Error("unmarshal should skip err field")
+	}
+	if !strings.Contains(code, "enc.Encode(c.val)") {
+		t.Error("missing val encode")
+	}
+	if !strings.Contains(code, "enc.Encode(c.msg)") {
+		t.Error("missing msg encode")
+	}
+}
+
+func TestExtractStructFields(t *testing.T) {
+	code := "type testCell struct {\n\terr error\n\tval int\n\tmsg string\n}"
+	fields := extractStructFields(code)
+	if len(fields) != 3 {
+		t.Fatalf("got %d fields, want 3", len(fields))
+	}
+	if fields[0] != "err error" {
+		t.Errorf("fields[0] = %q", fields[0])
+	}
+	if fields[1] != "val int" {
+		t.Errorf("fields[1] = %q", fields[1])
+	}
+	if fields[2] != "msg string" {
+		t.Errorf("fields[2] = %q", fields[2])
+	}
+}
+
+func TestExtractStructFieldsEmpty(t *testing.T) {
+	code := "type emptyCell struct {\n}"
+	fields := extractStructFields(code)
+	if len(fields) != 0 {
+		t.Errorf("got %d fields for empty struct", len(fields))
+	}
+}
+
 func TestFieldName(t *testing.T) {
 	tests := []struct {
 		input string

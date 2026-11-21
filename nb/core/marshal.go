@@ -13,11 +13,20 @@ import (
 func GenerateMarshal(structName string, fields []string) string {
 	var buf strings.Builder
 
+	// Filter out the internal err field — it's an interface type (error)
+	// that gob cannot encode when nil, and it's not a user-defined value.
+	var marshalFields []string
+	for _, f := range fields {
+		if fieldName(f) != "err" {
+			marshalFields = append(marshalFields, f)
+		}
+	}
+
 	// MarshalBinary method.
 	fmt.Fprintf(&buf, "func (c %s) MarshalBinary() ([]byte, error) {\n", structName)
 	fmt.Fprintf(&buf, "\tvar buf bytes.Buffer\n")
 	fmt.Fprintf(&buf, "\tenc := gob.NewEncoder(&buf)\n")
-	for _, f := range fields {
+	for _, f := range marshalFields {
 		name := fieldName(f)
 		fmt.Fprintf(&buf, "\tif err := enc.Encode(c.%s); err != nil {\n", name)
 		fmt.Fprintf(&buf, "\t\treturn nil, fmt.Errorf(\"marshal %s.%s: %%w\", err)\n", structName, name)
@@ -29,7 +38,7 @@ func GenerateMarshal(structName string, fields []string) string {
 	// UnmarshalBinary method.
 	fmt.Fprintf(&buf, "func (c *%s) UnmarshalBinary(data []byte) error {\n", structName)
 	fmt.Fprintf(&buf, "\tdec := gob.NewDecoder(bytes.NewReader(data))\n")
-	for _, f := range fields {
+	for _, f := range marshalFields {
 		name := fieldName(f)
 		fmt.Fprintf(&buf, "\tif err := dec.Decode(&c.%s); err != nil {\n", name)
 		fmt.Fprintf(&buf, "\t\treturn fmt.Errorf(\"unmarshal %s.%s: %%w\", err)\n", structName, name)
