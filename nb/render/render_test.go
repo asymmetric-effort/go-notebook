@@ -127,6 +127,72 @@ func TestHTMLEscaping(t *testing.T) {
 	}
 }
 
+func TestHTMLStandalone(t *testing.T) {
+	// Verify the HTML output is fully self-contained with no external references.
+	doc := document.NewDocument()
+	doc.AddProse("# Report Title\n\nSome **bold** text.")
+	doc.AddDisplay("chart", "image/svg+xml", "<svg></svg>")
+	doc.AddDisplay("data", "text/markdown", "result: 42")
+	doc.AddImage("logo.png", "image/png", "iVBORw0KGgo=")
+	doc.AddError("load", 10, errors.New("file not found"))
+
+	result := HTML(doc, "Full Report")
+
+	// Must be valid HTML with all required sections.
+	if !strings.Contains(result, "<!DOCTYPE html>") {
+		t.Error("missing DOCTYPE")
+	}
+	if !strings.Contains(result, "<meta charset=\"utf-8\">") {
+		t.Error("missing charset")
+	}
+	if !strings.Contains(result, "Content-Security-Policy") {
+		t.Error("missing CSP meta tag")
+	}
+	if !strings.Contains(result, "default-src 'none'") {
+		t.Error("CSP must block all remote loads by default")
+	}
+	if !strings.Contains(result, "style-src 'unsafe-inline'") {
+		t.Error("CSP must allow inline styles")
+	}
+	if !strings.Contains(result, "img-src data:") {
+		t.Error("CSP must allow data: images")
+	}
+	// Styles must be inline, not linked.
+	if !strings.Contains(result, "<style>") {
+		t.Error("styles must be inline")
+	}
+	if strings.Contains(result, "<link rel=\"stylesheet\"") {
+		t.Error("no external stylesheets allowed")
+	}
+	// Images must be data URIs.
+	if !strings.Contains(result, "data:image/png;base64,") {
+		t.Error("images must be data URIs")
+	}
+	// No external references.
+	if strings.Contains(result, "http://") || strings.Contains(result, "https://") {
+		t.Error("no external URLs allowed in output")
+	}
+	// Prose should be rendered through CommonMark.
+	if !strings.Contains(result, "<h1>Report Title</h1>") {
+		t.Error("prose should render through CommonMark")
+	}
+	if !strings.Contains(result, "<strong>bold</strong>") {
+		t.Error("emphasis should be rendered")
+	}
+}
+
+func TestHTMLProseCommonMark(t *testing.T) {
+	doc := document.NewDocument()
+	doc.AddProse("- item 1\n- item 2")
+	result := HTML(doc, "Test")
+	if !strings.Contains(result, "<ul>") {
+		t.Error("list should be rendered as HTML")
+	}
+	if !strings.Contains(result, "<li>item 1</li>") {
+		t.Error("list items should be rendered")
+	}
+}
+
 func TestMarkdownEmpty(t *testing.T) {
 	doc := document.NewDocument()
 	result := Markdown(doc)
