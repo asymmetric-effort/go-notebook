@@ -472,3 +472,55 @@ func findModuleRoot(t *testing.T) string {
 	modFile := strings.TrimSpace(string(out))
 	return filepath.Dir(modFile)
 }
+
+func TestGenerateSourceMap(t *testing.T) {
+	src := "```go:notebook name=test exported(val int)\nval = 42\n```\n"
+	result := Parse(src)
+	gen, err := Generate(result, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gen.SourceMap == nil {
+		t.Fatal("SourceMap should not be nil")
+	}
+
+	// Write the package to populate the source map.
+	dir := t.TempDir()
+	pkgDir := filepath.Join(dir, "smpkg")
+	err = WritePackage(gen, pkgDir, "test.md", "smpkg")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The source map should have at least one entry.
+	if gen.SourceMap.Len() == 0 {
+		t.Error("source map should have entries after WritePackage")
+	}
+
+	// The cell body starts at Markdown line 2 (line 1 is the fence).
+	// It should map to some Go line.
+	goLine, _, ok := gen.SourceMap.MdToGo(2, 1)
+	if !ok {
+		t.Error("Markdown line 2 should be in the source map")
+	}
+	if goLine <= 0 {
+		t.Errorf("Go line = %d, should be positive", goLine)
+	}
+	t.Logf("Md line 2 -> Go line %d", goLine)
+}
+
+func TestBuildSourceMapFromSource(t *testing.T) {
+	src := "package main\n\n//line test.md:10:1\nval = 42\nmsg = \"hello\"\n\nfunc main() {}\n"
+	sm := NewSourceMap()
+	buildSourceMapFromSource(src, sm)
+	if sm.Len() == 0 {
+		t.Error("source map should have entries")
+	}
+	goLine, _, ok := sm.MdToGo(10, 1)
+	if !ok {
+		t.Error("line 10 should be mapped")
+	}
+	if goLine <= 0 {
+		t.Errorf("Go line = %d", goLine)
+	}
+}

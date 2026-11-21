@@ -33,6 +33,11 @@ func WritePackage(gen GenerateResult, dir string, notebookPath string, modulePat
 		return fmt.Errorf("write main.go: %w", err)
 	}
 
+	// Build source map from the generated source (uses //line directives).
+	if gen.SourceMap != nil {
+		buildSourceMapFromSource(src, gen.SourceMap)
+	}
+
 	// Copy //go:embed files from alongside the notebook into the package dir.
 	patterns := ExtractEmbedPatterns(gen.DefsCode)
 	if len(patterns) > 0 {
@@ -159,6 +164,52 @@ func splitDefsImports(defsCode string) (imports []string, body string) {
 		bodyLines = append(bodyLines, lines[i])
 	}
 	return imports, strings.TrimSpace(strings.Join(bodyLines, "\n"))
+}
+
+// buildSourceMapFromSource scans generated Go source for //line directives
+// and builds a source map. Each //line directive maps a Markdown position
+// to the corresponding Go line in the generated source.
+func buildSourceMapFromSource(src string, sm *SourceMap) {
+	lines := strings.Split(src, "\n")
+	for goLine, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "//line ") {
+			continue
+		}
+		// Parse: //line filename:mdLine:col
+		rest := strings.TrimPrefix(trimmed, "//line ")
+		// Find the last two colons (line:col).
+		lastColon := strings.LastIndex(rest, ":")
+		if lastColon < 0 {
+			continue
+		}
+		beforeCol := rest[:lastColon]
+		secondLastColon := strings.LastIndex(beforeCol, ":")
+		if secondLastColon < 0 {
+			continue
+		}
+		mdLineStr := beforeCol[secondLastColon+1:]
+		mdLine := 0
+		for _, ch := range mdLineStr {
+			if ch >= '0' && ch <= '9' {
+				mdLine = mdLine*10 + int(ch-'0')
+			}
+		}
+		if mdLine > 0 {
+			// Count how many non-directive lines follow until the next directive or function end.
+			bodyLen := 0
+			for j := goLine + 1; j < len(lines); j++ {
+				t := strings.TrimSpace(lines[j])
+				if strings.HasPrefix(t, "//line ") || t == "return" || t == "}" {
+					break
+				}
+				bodyLen++
+			}
+			if bodyLen > 0 {
+				sm.Add(mdLine, 1, goLine+2, 1, bodyLen) // goLine is 0-based, +1 for 1-based, +1 for line after directive
+			}
+		}
+	}
 }
 
 // extractStructFields extracts field declarations from a struct definition string.

@@ -29,6 +29,7 @@ type GenerateResult struct {
 	DefsCode    string
 	Cells       []GeneratedCell
 	MainCode    string
+	SourceMap   *SourceMap // Maps Markdown positions to generated Go positions.
 }
 
 // Generate produces Go source code from parsed notebook blocks.
@@ -40,6 +41,7 @@ type GenerateResult struct {
 func Generate(result ParseResult, pkgName string) (GenerateResult, error) {
 	var gen GenerateResult
 	gen.PackageName = pkgName
+	gen.SourceMap = NewSourceMap()
 
 	// Collect defs and cells.
 	var defsBlocks []Block
