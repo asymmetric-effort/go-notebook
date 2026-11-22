@@ -7,6 +7,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -29,9 +30,19 @@ type checkerCellInfo struct {
 	attrs CellAttrs
 }
 
+// CheckOptions configures optional checker behavior.
+type CheckOptions struct {
+	NotebookDir string // Directory for resolving image paths (rule 17).
+}
+
 // Check runs all checker rules on a parsed notebook and returns errors.
 // Every error stops generation.
 func Check(result ParseResult) []error {
+	return CheckWithOptions(result, CheckOptions{})
+}
+
+// CheckWithOptions runs all checker rules with additional context.
+func CheckWithOptions(result ParseResult, opts CheckOptions) []error {
 	var errs []error
 
 	// Collect cell names and positions for reference checking.
@@ -52,7 +63,7 @@ func Check(result ParseResult) []error {
 				cells = append(cells, checkerCellInfo{name: attrs.Name, line: b.StartPos.Line, attrs: attrs})
 			}
 		case BlockProse:
-			errs = append(errs, checkProse(b)...)
+			errs = append(errs, checkProse(b, opts)...)
 		}
 	}
 
@@ -202,7 +213,7 @@ var imageRefRegex = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
 var htmlTagRegex = regexp.MustCompile(`<(/?)([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>`)
 
 // checkProse enforces rules 16-21 on prose blocks.
-func checkProse(b Block) []error {
+func checkProse(b Block, opts CheckOptions) []error {
 	var errs []error
 	lines := strings.Split(b.Body, "\n")
 
@@ -223,6 +234,35 @@ func checkProse(b Block) []error {
 					Line:    mdLine,
 					Message: fmt.Sprintf("image path %q leaves the notebook directory (rule 16). Remove the ../ component.", imgPath),
 				})
+			}
+		}
+
+		// Rule 17: Every referenced image exists and is an accepted format.
+		if opts.NotebookDir != "" {
+			for _, match := range imageRefRegex.FindAllStringSubmatch(line, -1) {
+				imgPath := match[2]
+				if isWebURL(imgPath) {
+					continue // Web URLs are handled by the downloader.
+				}
+				fullPath := filepath.Join(opts.NotebookDir, imgPath)
+				if _, err := os.Stat(fullPath); err != nil {
+					errs = append(errs, &CheckError{
+						Line:    mdLine,
+						Message: fmt.Sprintf("image %q not found (rule 17). Check the path relative to the notebook directory.", imgPath),
+					})
+				} else {
+					ext := strings.ToLower(filepath.Ext(fullPath))
+					acceptedExts := map[string]bool{
+						".png": true, ".jpg": true, ".jpeg": true, ".gif": true,
+						".webp": true, ".bmp": true, ".tiff": true, ".tif": true, ".svg": true,
+					}
+					if !acceptedExts[ext] {
+						errs = append(errs, &CheckError{
+							Line:    mdLine,
+							Message: fmt.Sprintf("image %q has unsupported format %q (rule 17). Accepted: png, jpg, gif, webp, bmp, tiff, svg.", imgPath, ext),
+						})
+					}
+				}
 			}
 		}
 
