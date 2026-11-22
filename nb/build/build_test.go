@@ -73,6 +73,33 @@ func TestRunDefaultFormat(t *testing.T) {
 	}
 }
 
+func TestRunPDF(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "# PDF Report\n\nSome content.\n"
+	if err := os.WriteFile(notebook, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outPath := filepath.Join(dir, "out.pdf")
+	err := Run(notebook, Options{Format: "pdf", Output: outPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) < 100 {
+		t.Errorf("PDF too small: %d bytes", len(data))
+	}
+	if string(data[:5]) != "%PDF-" {
+		t.Errorf("not a PDF: starts with %q", data[:5])
+	}
+	t.Logf("PDF size: %d bytes", len(data))
+}
+
 func TestRunCheckErrors(t *testing.T) {
 	dir := t.TempDir()
 	notebook := filepath.Join(dir, "test.md")
