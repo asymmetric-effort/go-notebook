@@ -15,6 +15,7 @@ import (
 
 	"github.com/asymmetric-effort/go-notebook/nb/core"
 	"github.com/asymmetric-effort/go-notebook/nb/document"
+	"github.com/asymmetric-effort/go-notebook/nb/engine"
 	"github.com/asymmetric-effort/go-notebook/nb/kernel"
 	"github.com/asymmetric-effort/go-notebook/nb/render"
 )
@@ -111,25 +112,53 @@ func Run(notebookPath string, opts Options) error {
 		format = "html"
 	}
 
-	var output string
+	// Render to the requested format.
+	outPath := opts.Output
 	switch format {
 	case "md":
-		output = render.Markdown(doc)
+		output := render.Markdown(doc)
+		if outPath == "" {
+			outPath = notebookPath + ".md"
+		}
+		if err := os.WriteFile(outPath, []byte(output), 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", outPath, err)
+		}
 	case "html":
-		output = render.HTML(doc, notebookPath)
+		output := render.HTML(doc, notebookPath)
+		if outPath == "" {
+			outPath = notebookPath + ".html"
+		}
+		if err := os.WriteFile(outPath, []byte(output), 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", outPath, err)
+		}
 	case "typst":
-		output = render.Typst(doc)
+		output := render.Typst(doc)
+		if outPath == "" {
+			outPath = notebookPath + ".typ"
+		}
+		if err := os.WriteFile(outPath, []byte(output), 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", outPath, err)
+		}
+	case "pdf":
+		typstSrc := render.Typst(doc)
+		if outPath == "" {
+			outPath = notebookPath + ".pdf"
+		}
+		ctx := context.Background()
+		eng, err := engine.New(ctx)
+		if err != nil {
+			return fmt.Errorf("start typst engine: %w", err)
+		}
+		defer eng.Close(ctx)
+		pdfBytes, err := eng.Compile(ctx, typstSrc, "pdf")
+		if err != nil {
+			return fmt.Errorf("compile pdf: %w", err)
+		}
+		if err := os.WriteFile(outPath, pdfBytes, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", outPath, err)
+		}
 	default:
-		return fmt.Errorf("unknown format %q (want md, html, or typst)", format)
-	}
-
-	// Write output.
-	outPath := opts.Output
-	if outPath == "" {
-		outPath = notebookPath + "." + format
-	}
-	if err := os.WriteFile(outPath, []byte(output), 0o644); err != nil {
-		return fmt.Errorf("write %s: %w", outPath, err)
+		return fmt.Errorf("unknown format %q (want md, html, typst, or pdf)", format)
 	}
 
 	fmt.Printf("gobook build: %s -> %s\n", notebookPath, outPath)
