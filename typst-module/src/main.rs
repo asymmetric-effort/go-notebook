@@ -24,6 +24,10 @@ struct Command {
     input: String,
     #[serde(default)]
     format: String,
+    #[serde(default)]
+    width: Option<u32>,
+    #[serde(default)]
+    height: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -118,6 +122,43 @@ fn compile_to_pdf(source: &str) -> Result<Vec<u8>, String> {
     }
 }
 
+fn svg_to_png(svg_data: &str, width: u32, height: u32) -> Result<Vec<u8>, String> {
+    let opts = usvg::Options::default();
+    let tree = usvg::Tree::from_str(svg_data, &opts)
+        .map_err(|e| format!("parse SVG: {}", e))?;
+
+    let target_w = if width > 0 { width } else { 800 };
+    let target_h = if height > 0 { height } else { 600 };
+
+    let mut pixmap = tiny_skia::Pixmap::new(target_w, target_h)
+        .ok_or_else(|| "failed to create pixmap".to_string())?;
+
+    let tree_size = tree.size();
+    let sx = target_w as f32 / tree_size.width();
+    let sy = target_h as f32 / tree_size.height();
+    let scale = sx.min(sy);
+
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+
+    // Encode to PNG.
+    let mut png_buf = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut png_buf, target_w, target_h);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header()
+            .map_err(|e| format!("PNG header: {}", e))?;
+        writer.write_image_data(pixmap.data())
+            .map_err(|e| format!("PNG write: {}", e))?;
+    }
+
+    Ok(png_buf)
+}
+
 fn main() {
     let mut input = String::new();
     io::stdin().read_to_string(&mut input).unwrap_or_default();
@@ -148,6 +189,27 @@ fn main() {
                     data: None,
                     input_len: None,
                 },
+            },
+            "svg_to_png" => {
+                let w = cmd.width.unwrap_or(800) as u32;
+                let h = cmd.height.unwrap_or(600) as u32;
+                match svg_to_png(&cmd.input, w, h) {
+                    Ok(png_bytes) => {
+                        let encoded = base64::engine::general_purpose::STANDARD.encode(&png_bytes);
+                        Response {
+                            ok: true,
+                            error: None,
+                            data: Some(encoded),
+                            input_len: None,
+                        }
+                    }
+                    Err(e) => Response {
+                        ok: false,
+                        error: Some(e),
+                        data: None,
+                        input_len: None,
+                    },
+                }
             },
             "ping" => Response {
                 ok: true,

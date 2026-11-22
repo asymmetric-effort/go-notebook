@@ -76,6 +76,29 @@ func TestEngineCompileError(t *testing.T) {
 	t.Logf("Expected error: %v", err)
 }
 
+func TestEngineSVGToPNG(t *testing.T) {
+	ctx := context.Background()
+	e, err := New(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close(ctx)
+
+	svg := `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="red"/></svg>`
+	png, err := e.SVGToPNG(ctx, svg, 100, 100)
+	if err != nil {
+		t.Fatalf("SVGToPNG: %v", err)
+	}
+	if len(png) == 0 {
+		t.Error("PNG output should not be empty")
+	}
+	// Check PNG magic bytes.
+	if len(png) > 8 && string(png[1:4]) != "PNG" {
+		t.Errorf("not a PNG: bytes 1-3 = %q", png[1:4])
+	}
+	t.Logf("PNG size: %d bytes", len(png))
+}
+
 func TestEngineClose(t *testing.T) {
 	ctx := context.Background()
 	e, err := New(ctx)
