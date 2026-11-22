@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 
@@ -33,7 +34,7 @@ type Response struct {
 	OK       bool   `json:"ok"`
 	Error    string `json:"error,omitempty"`
 	InputLen int    `json:"input_len,omitempty"`
-	Data     []byte `json:"data,omitempty"`
+	Data     string `json:"data,omitempty"` // base64-encoded
 }
 
 // Engine runs the Typst WASM module on wazero.
@@ -99,7 +100,14 @@ func (e *Engine) Compile(ctx context.Context, source string, format string) ([]b
 	if !resp.OK {
 		return nil, fmt.Errorf("typst compile: %s", resp.Error)
 	}
-	return resp.Data, nil
+	if resp.Data == "" {
+		return nil, nil
+	}
+	data, err := base64.StdEncoding.DecodeString(resp.Data)
+	if err != nil {
+		return nil, fmt.Errorf("decode response data: %w", err)
+	}
+	return data, nil
 }
 
 // SVGToPNG converts an SVG string to a PNG image.
@@ -111,5 +119,12 @@ func (e *Engine) SVGToPNG(ctx context.Context, svg string, width, height int) ([
 	if !resp.OK {
 		return nil, fmt.Errorf("typst svg_to_png: %s", resp.Error)
 	}
-	return resp.Data, nil
+	if resp.Data == "" {
+		return nil, nil
+	}
+	data, err := base64.StdEncoding.DecodeString(resp.Data)
+	if err != nil {
+		return nil, fmt.Errorf("decode response data: %w", err)
+	}
+	return data, nil
 }
