@@ -16,7 +16,7 @@ func TestNewEngine(t *testing.T) {
 	defer e.Close(ctx)
 }
 
-func TestEngineRun(t *testing.T) {
+func TestEnginePing(t *testing.T) {
 	ctx := context.Background()
 	e, err := New(ctx)
 	if err != nil {
@@ -24,19 +24,19 @@ func TestEngineRun(t *testing.T) {
 	}
 	defer e.Close(ctx)
 
-	resp, err := e.Run(ctx, Command{Cmd: "test", Input: "hello"})
+	resp, err := e.Run(ctx, Command{Cmd: "ping", Input: "hello"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !resp.OK {
-		t.Errorf("resp.OK = false")
+		t.Errorf("resp.OK = false, error: %s", resp.Error)
 	}
 	if resp.InputLen == 0 {
 		t.Error("InputLen should be > 0")
 	}
 }
 
-func TestEngineCompile(t *testing.T) {
+func TestEngineCompilePDF(t *testing.T) {
 	ctx := context.Background()
 	e, err := New(ctx)
 	if err != nil {
@@ -44,18 +44,23 @@ func TestEngineCompile(t *testing.T) {
 	}
 	defer e.Close(ctx)
 
-	// The stub module doesn't actually compile Typst, so this tests the
-	// plumbing. The response will have ok=true but no data since the
-	// stub just returns input length.
-	_, err = e.Compile(ctx, "#hello", "pdf")
-	// The stub responds with ok:true but no "data" field, so Compile
-	// returns nil data, which is fine for now.
+	// Simple Typst source that should compile to PDF.
+	source := "#set page(width: 100pt, height: 100pt)\nHello, world!"
+	pdf, err := e.Compile(ctx, source, "pdf")
 	if err != nil {
-		t.Logf("Compile error (expected with stub): %v", err)
+		t.Fatalf("Compile: %v", err)
 	}
+	if len(pdf) == 0 {
+		t.Error("PDF output should not be empty")
+	}
+	// Check PDF magic bytes.
+	if len(pdf) > 4 && string(pdf[:5]) != "%PDF-" {
+		t.Errorf("PDF should start with %%PDF-, got %q", pdf[:5])
+	}
+	t.Logf("PDF size: %d bytes", len(pdf))
 }
 
-func TestEngineSVGToPNG(t *testing.T) {
+func TestEngineCompileError(t *testing.T) {
 	ctx := context.Background()
 	e, err := New(ctx)
 	if err != nil {
@@ -63,10 +68,12 @@ func TestEngineSVGToPNG(t *testing.T) {
 	}
 	defer e.Close(ctx)
 
-	_, err = e.SVGToPNG(ctx, "<svg></svg>", 100, 100)
-	if err != nil {
-		t.Logf("SVGToPNG error (expected with stub): %v", err)
+	// Invalid Typst source.
+	_, err = e.Compile(ctx, "#nonexistent_function()", "pdf")
+	if err == nil {
+		t.Error("expected compile error for invalid source")
 	}
+	t.Logf("Expected error: %v", err)
 }
 
 func TestEngineClose(t *testing.T) {
@@ -80,7 +87,7 @@ func TestEngineClose(t *testing.T) {
 	}
 }
 
-func TestEngineRunEmpty(t *testing.T) {
+func TestEngineUnknownCommand(t *testing.T) {
 	ctx := context.Background()
 	e, err := New(ctx)
 	if err != nil {
@@ -88,11 +95,11 @@ func TestEngineRunEmpty(t *testing.T) {
 	}
 	defer e.Close(ctx)
 
-	resp, err := e.Run(ctx, Command{Cmd: "test", Input: ""})
+	resp, err := e.Run(ctx, Command{Cmd: "bogus", Input: ""})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !resp.OK {
-		t.Errorf("resp.OK = false")
+	if resp.OK {
+		t.Error("unknown command should not be OK")
 	}
 }
