@@ -35,6 +35,7 @@ var buildTimeout string
 var buildPassphrase bool
 var buildPassphraseFile string
 var buildSignKey string
+var buildRecipients []string
 
 var buildCmd = &cobra.Command{
 	Use:   "build <notebook.md>",
@@ -188,6 +189,7 @@ func init() {
 	buildCmd.Flags().StringVar(&buildPassphraseFile, "passphrase-file", "", "read passphrase from file")
 	buildCmd.MarkFlagsMutuallyExclusive("passphrase", "passphrase-file")
 	buildCmd.Flags().StringVar(&buildSignKey, "sign-key", "", "sign output with ML-DSA-65 private key")
+	buildCmd.Flags().StringArrayVar(&buildRecipients, "recipient", nil, "encrypt for recipient public key (repeatable)")
 
 	genCmd.Flags().StringVar(&genOutDir, "out", "gen", "output directory")
 
