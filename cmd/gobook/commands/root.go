@@ -124,7 +124,7 @@ var vetCmd = &cobra.Command{
 }
 
 func init() {
-	buildCmd.Flags().StringVar(&buildFormat, "format", "", "output format (md, html)")
+	buildCmd.Flags().StringVar(&buildFormat, "format", "", "output format (md, html, typst)")
 	buildCmd.Flags().StringVarP(&buildOutput, "output", "o", "", "output file path")
 	buildCmd.Flags().StringVar(&buildTimeout, "cell-timeout", "", "per-cell timeout")
 	buildCmd.Flags().BoolVar(&buildPassphrase, "passphrase", false, "prompt for encryption passphrase")
