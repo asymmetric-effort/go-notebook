@@ -15,6 +15,7 @@ import (
 	"github.com/asymmetric-effort/go-notebook/nb/build"
 	"github.com/asymmetric-effort/go-notebook/nb/core"
 	"github.com/asymmetric-effort/go-notebook/nb/crypto"
+	"github.com/asymmetric-effort/go-notebook/nb/identity"
 	"github.com/asymmetric-effort/go-notebook/nb/kernel"
 	"github.com/asymmetric-effort/go-notebook/nb/lsp"
 	"github.com/asymmetric-effort/go-notebook/nb/server"
@@ -103,6 +104,29 @@ var serveCmd = &cobra.Command{
 	},
 }
 
+var keygenOutput string
+
+var keygenCmd = &cobra.Command{
+	Use:   "keygen",
+	Short: "Generate a post-quantum identity (ML-DSA-65)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := keygenOutput
+		if name == "" {
+			name = "gobook-key"
+		}
+		id, err := identity.Generate()
+		if err != nil {
+			return err
+		}
+		if err := id.WriteKeys(name); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "gobook keygen: wrote %s.pub and %s.key\n", name, name)
+		fmt.Fprintf(os.Stderr, "fingerprint: %s\n", id.Fingerprint())
+		return nil
+	},
+}
+
 var goplsPath string
 
 var lspCmd = &cobra.Command{
@@ -135,9 +159,11 @@ func init() {
 
 	serveCmd.Flags().StringVar(&serveAddr, "addr", "localhost:8080", "listen address")
 
+	keygenCmd.Flags().StringVarP(&keygenOutput, "output", "o", "", "output key file base name")
+
 	lspCmd.Flags().StringVar(&goplsPath, "gopls", "gopls", "path to gopls binary")
 
-	rootCmd.AddCommand(buildCmd, checkCmd, fmtCmd, genCmd, lspCmd, runCmd, serveCmd, vetCmd)
+	rootCmd.AddCommand(buildCmd, checkCmd, fmtCmd, genCmd, keygenCmd, lspCmd, runCmd, serveCmd, vetCmd)
 }
 
 // Execute runs the gobook CLI.
