@@ -34,6 +34,7 @@ var buildOutput string
 var buildTimeout string
 var buildPassphrase bool
 var buildPassphraseFile string
+var buildSignKey string
 
 var buildCmd = &cobra.Command{
 	Use:   "build <notebook.md>",
@@ -44,12 +45,31 @@ var buildCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return cmdBuild(args[0], build.Options{
+		err = cmdBuild(args[0], build.Options{
 			Format:     buildFormat,
 			Output:     buildOutput,
 			Timeout:    buildTimeout,
 			Passphrase: passphrase,
 		})
+		if err != nil {
+			return err
+		}
+		// Sign the output if --sign-key is provided.
+		if buildSignKey != "" {
+			outPath := buildOutput
+			if outPath == "" {
+				format := buildFormat
+				if format == "" {
+					format = "html"
+				}
+				outPath = args[0] + "." + format
+			}
+			if err := identity.SignFile(outPath, buildSignKey); err != nil {
+				return fmt.Errorf("sign: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "gobook build: signed %s -> %s.sig\n", outPath, outPath)
+		}
+		return nil
 	},
 }
 
@@ -138,6 +158,19 @@ var lspCmd = &cobra.Command{
 	},
 }
 
+var verifyCmd = &cobra.Command{
+	Use:   "verify <file> <signature> <public-key>",
+	Short: "Verify a detached ML-DSA-65 signature",
+	Args:  cobra.ExactArgs(3),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := identity.VerifyFile(args[0], args[1], args[2]); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "gobook verify: %s signature valid\n", args[0])
+		return nil
+	},
+}
+
 var vetCmd = &cobra.Command{
 	Use:   "vet <notebook.md>",
 	Short: "Run go vet on a notebook's generated code",
@@ -154,6 +187,7 @@ func init() {
 	buildCmd.Flags().BoolVar(&buildPassphrase, "passphrase", false, "prompt for encryption passphrase")
 	buildCmd.Flags().StringVar(&buildPassphraseFile, "passphrase-file", "", "read passphrase from file")
 	buildCmd.MarkFlagsMutuallyExclusive("passphrase", "passphrase-file")
+	buildCmd.Flags().StringVar(&buildSignKey, "sign-key", "", "sign output with ML-DSA-65 private key")
 
 	genCmd.Flags().StringVar(&genOutDir, "out", "gen", "output directory")
 
@@ -163,7 +197,7 @@ func init() {
 
 	lspCmd.Flags().StringVar(&goplsPath, "gopls", "gopls", "path to gopls binary")
 
-	rootCmd.AddCommand(buildCmd, checkCmd, fmtCmd, genCmd, keygenCmd, lspCmd, runCmd, serveCmd, vetCmd)
+	rootCmd.AddCommand(buildCmd, checkCmd, fmtCmd, genCmd, keygenCmd, lspCmd, runCmd, serveCmd, verifyCmd, vetCmd)
 }
 
 // Execute runs the gobook CLI.
