@@ -94,6 +94,32 @@ func TestRunMissingFile(t *testing.T) {
 	}
 }
 
+func TestRunTypst(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "# Report\n\n```go:notebook name=test exported(val int)\nval = 42\n```\n"
+	if err := os.WriteFile(notebook, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outPath := filepath.Join(dir, "out.typ")
+	err := Run(notebook, Options{Format: "typst", Output: outPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "#set page") {
+		t.Error("missing Typst preamble")
+	}
+	if !strings.Contains(string(data), "= Report") {
+		t.Error("missing heading conversion")
+	}
+}
+
 func TestRunBadFormat(t *testing.T) {
 	dir := t.TempDir()
 	notebook := filepath.Join(dir, "test.md")

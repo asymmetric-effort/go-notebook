@@ -117,8 +117,10 @@ func Run(notebookPath string, opts Options) error {
 		output = render.Markdown(doc)
 	case "html":
 		output = render.HTML(doc, notebookPath)
+	case "typst":
+		output = render.Typst(doc)
 	default:
-		return fmt.Errorf("unknown format %q (want md or html)", format)
+		return fmt.Errorf("unknown format %q (want md, html, or typst)", format)
 	}
 
 	// Write output.
