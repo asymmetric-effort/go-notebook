@@ -100,6 +100,34 @@ func TestRunPDF(t *testing.T) {
 	t.Logf("PDF size: %d bytes", len(data))
 }
 
+func TestRunPDFWithError(t *testing.T) {
+	// A notebook with a panic produces a partial PDF with the error.
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "# Report\n\nSome prose before the error.\n\n```go:notebook name=test exported(val int)\npanic(\"oops\")\n```\n"
+	if err := os.WriteFile(notebook, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outPath := filepath.Join(dir, "out.pdf")
+	err := Run(notebook, Options{Format: "pdf", Output: outPath})
+	// Error is expected (cell panicked).
+	_ = err
+
+	// Partial report should still be written.
+	data, readErr := os.ReadFile(outPath)
+	if readErr != nil {
+		t.Fatal("partial PDF should be written even on cell error")
+	}
+	if len(data) < 100 {
+		t.Errorf("partial PDF too small: %d bytes", len(data))
+	}
+	if string(data[:5]) != "%PDF-" {
+		t.Errorf("not a PDF: starts with %q", data[:5])
+	}
+	t.Logf("Partial PDF size: %d bytes", len(data))
+}
+
 func TestRunCheckErrors(t *testing.T) {
 	dir := t.TempDir()
 	notebook := filepath.Join(dir, "test.md")
