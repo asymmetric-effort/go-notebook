@@ -645,3 +645,165 @@ func TestRewriteProseNotFound(t *testing.T) {
 		t.Error("expected error for nonexistent prose block")
 	}
 }
+
+func TestRunStateEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("```go:notebook name=test exported(val int)\nval = 42\n```\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest("GET", "/api/run/state", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	// Initially empty state.
+	var states map[string]*cellState
+	json.Unmarshal(w.Body.Bytes(), &states)
+	if len(states) != 0 {
+		t.Errorf("initial states should be empty, got %d", len(states))
+	}
+}
+
+func TestRunStateMethodNotAllowed(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest("POST", "/api/run/state", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestRunAllMethodNotAllowed(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest("GET", "/api/run/all", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestMarkStale(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "```go:notebook name=a exported(x int)\nx = 1\n```\n\n```go:notebook name=b exported(y int)\ny = a.x + 1\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	s := New(notebook, ":0")
+
+	// Set up initial cell states (simulate previous run).
+	s.mu.Lock()
+	s.cellStates["a"] = &cellState{Name: "a", Stale: false}
+	s.cellStates["b"] = &cellState{Name: "b", Stale: false}
+	s.mu.Unlock()
+
+	// Mark cell "a" stale — should also mark "b" stale (downstream).
+	s.markStale("a")
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.cellStates["a"].Stale {
+		t.Error("cell a should be stale")
+	}
+	if !s.cellStates["b"].Stale {
+		t.Error("cell b should be stale (downstream of a)")
+	}
+}
+
+func TestMarkStaleAll(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	s.mu.Lock()
+	s.cellStates["a"] = &cellState{Name: "a", Stale: false}
+	s.cellStates["b"] = &cellState{Name: "b", Stale: false}
+	s.mu.Unlock()
+
+	// Mark all stale (empty cell name).
+	s.markStale("")
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.cellStates["a"].Stale {
+		t.Error("cell a should be stale")
+	}
+	if !s.cellStates["b"].Stale {
+		t.Error("cell b should be stale")
+	}
+}
+
+func TestCheckUpstreamFailure(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "```go:notebook name=a exported(x int)\nx = 1\n```\n\n```go:notebook name=b exported(y int)\ny = a.x\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	s := New(notebook, ":0")
+
+	// No failures — should return empty.
+	if refused := s.checkUpstreamFailure("b"); refused != "" {
+		t.Errorf("expected no refusal, got %q", refused)
+	}
+
+	// Mark cell "a" as failed.
+	s.mu.Lock()
+	s.cellStates["a"] = &cellState{Name: "a", Failed: true}
+	s.mu.Unlock()
+
+	// Now "b" should be refused because "a" failed.
+	if refused := s.checkUpstreamFailure("b"); refused != "a" {
+		t.Errorf("expected refusal for 'a', got %q", refused)
+	}
+
+	// Cell "a" itself has no upstream, so it should not be refused.
+	if refused := s.checkUpstreamFailure("a"); refused != "" {
+		t.Errorf("expected no refusal for first cell, got %q", refused)
+	}
+}
+
+func TestRunRefusal(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "```go:notebook name=a exported(x int)\nx = 1\n```\n\n```go:notebook name=b exported(y int)\ny = a.x\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	s := New(notebook, ":0")
+
+	// Mark cell "a" as failed.
+	s.mu.Lock()
+	s.cellStates["a"] = &cellState{Name: "a", Failed: true}
+	s.mu.Unlock()
+
+	// Try to run cell "b" — should be refused.
+	body, _ := json.Marshal(runRequest{Cell: "b"})
+	req := httptest.NewRequest("POST", "/api/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", w.Code)
+	}
+
+	var resp runResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Refused != "a" {
+		t.Errorf("refused = %q, want 'a'", resp.Refused)
+	}
+}
