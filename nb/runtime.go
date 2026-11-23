@@ -40,13 +40,25 @@ func NewContext(fsys fs.FS) *Context {
 	}
 }
 
-// Open opens a file declared in reads(). The file is resolved through the
-// context's file system.
+// Open opens a file declared in reads(). For reads(name:embed) files,
+// it resolves through the context's file system. For reads(name:runtime)
+// files, it resolves relative to the working directory.
 func (ctx *Context) Open(name string) (fs.File, error) {
-	if ctx.fs == nil {
-		return nil, fmt.Errorf("no file system configured")
+	// Try the embedded file system first.
+	if ctx.fs != nil {
+		f, err := ctx.fs.Open(name)
+		if err == nil {
+			return f, nil
+		}
 	}
-	return ctx.fs.Open(name)
+	// Fall back to the working directory (runtime file resolution).
+	return os.Open(name)
+}
+
+// OpenRuntime opens a file resolved relative to the working directory.
+// This is used for reads(name:runtime) files in report binaries.
+func (ctx *Context) OpenRuntime(name string) (*os.File, error) {
+	return os.Open(name)
 }
 
 // SetOutputDir sets the directory where Create writes files.
