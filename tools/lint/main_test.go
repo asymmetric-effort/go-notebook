@@ -53,13 +53,13 @@ func TestXmlLintNoFiles(t *testing.T) {
 	}
 }
 
-func TestEsLintNoFiles(t *testing.T) {
+func TestEsLint(t *testing.T) {
 	if err := esLint(); err != nil {
 		t.Fatalf("esLint() = %v, want nil", err)
 	}
 }
 
-func TestTscCheckNoFiles(t *testing.T) {
+func TestTscCheck(t *testing.T) {
 	if err := tscCheck(); err != nil {
 		t.Fatalf("tscCheck() = %v, want nil", err)
 	}

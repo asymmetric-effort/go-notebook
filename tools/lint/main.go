@@ -93,11 +93,15 @@ func moduleRoot() (string, error) {
 	return filepath.Dir(modFile), nil
 }
 
-// markdownLint runs markdownlint-cli2 on Markdown files.
+// markdownLint runs markdownlint-cli2 on Markdown files. Skips if node_modules is not installed.
 func markdownLint() error {
 	root, err := moduleRoot()
 	if err != nil {
 		return fmt.Errorf("find module root: %w", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "node_modules")); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "warning: node_modules not found, skipping markdownlint\n")
+		return nil
 	}
 	files := findFilesByExt(root, ".md", nil)
 	if len(files) == 0 {
@@ -246,7 +250,7 @@ func hasTypeScriptFiles() bool {
 	return found
 }
 
-// esLint runs ESLint on TypeScript files.
+// esLint runs ESLint on TypeScript files. Skips if node_modules is not installed.
 func esLint() error {
 	if !hasTypeScriptFiles() {
 		return nil
@@ -254,6 +258,10 @@ func esLint() error {
 	root, err := moduleRoot()
 	if err != nil {
 		return fmt.Errorf("find module root: %w", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "node_modules")); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "warning: node_modules not found, skipping eslint\n")
+		return nil
 	}
 	cmd := exec.Command("npx", "eslint", ".")
 	cmd.Dir = root
@@ -265,7 +273,7 @@ func esLint() error {
 	return nil
 }
 
-// tscCheck runs tsc --noEmit for type checking.
+// tscCheck runs tsc --noEmit for type checking. Skips if node_modules is not installed.
 func tscCheck() error {
 	if !hasTypeScriptFiles() {
 		return nil
@@ -273,6 +281,10 @@ func tscCheck() error {
 	root, err := moduleRoot()
 	if err != nil {
 		return fmt.Errorf("find module root: %w", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "node_modules")); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "warning: node_modules not found, skipping tsc\n")
+		return nil
 	}
 	cmd := exec.Command("npx", "tsc", "--noEmit")
 	cmd.Dir = root
