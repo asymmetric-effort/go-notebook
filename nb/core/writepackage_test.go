@@ -524,3 +524,62 @@ func TestBuildSourceMapFromSource(t *testing.T) {
 		t.Errorf("Go line = %d", goLine)
 	}
 }
+
+func TestGoByteSliceLiteral(t *testing.T) {
+	got := goByteSliceLiteral([]byte{0x01, 0xff})
+	if got != "[]byte{0x01, 0xff}" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestGoByteSliceLiteralEmpty(t *testing.T) {
+	got := goByteSliceLiteral(nil)
+	if got != "[]byte{}" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestGenerateMainWithEmbeddedData(t *testing.T) {
+	gen := GenerateResult{
+		PackageName: "main",
+		Cells: []GeneratedCell{
+			{StructName: "loadCell", FuncName: "runLoad",
+				StructCode: "type loadCell struct {\n\terr error\n\tval int\n}",
+				FuncCode:   "func runLoad(ctx *nb.Context) (out loadCell) {\n\treturn\n}",
+				DataMode:   DataEmbedded},
+		},
+		EmbeddedCells: []EmbeddedCellData{
+			{CellName: "load", EncryptedData: []byte{0x01, 0x02}},
+		},
+	}
+	src := assembleSource(gen, "test.md")
+	if !strings.Contains(src, "data=embedded") {
+		t.Error("should have embedded comment")
+	}
+	if !strings.Contains(src, "UnmarshalBinary") {
+		t.Error("should have UnmarshalBinary call")
+	}
+	if !strings.Contains(src, "0x01, 0x02") {
+		t.Error("should have embedded byte data")
+	}
+}
+
+func TestGenerateMainEmbeddedNoData(t *testing.T) {
+	gen := GenerateResult{
+		PackageName: "main",
+		Cells: []GeneratedCell{
+			{StructName: "loadCell", FuncName: "runLoad",
+				StructCode: "type loadCell struct {\n\terr error\n\tval int\n}",
+				FuncCode:   "func runLoad(ctx *nb.Context) (out loadCell) {\n\treturn\n}",
+				DataMode:   DataEmbedded},
+		},
+		// No EmbeddedCells — first pass, should emit GOBOOK_EMBED_MODE code.
+	}
+	src := assembleSource(gen, "test.md")
+	if !strings.Contains(src, "GOBOOK_EMBED_MODE") {
+		t.Error("should have embed mode check for first pass")
+	}
+	if !strings.Contains(src, "MarshalBinary") {
+		t.Error("should have MarshalBinary for serialization")
+	}
+}

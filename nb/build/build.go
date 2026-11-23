@@ -6,6 +6,7 @@ package build
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -86,6 +87,15 @@ func Run(notebookPath string, opts Options) error {
 		k := kernel.New()
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
+
+		// If there are embedded cells, run in embed mode first to capture data.
+		if hasEmbeddedCells(gen) {
+			embedResult, _ := k.RunCell(ctx, "embed", timeout,
+				func(ctx context.Context) (kernel.CellResult, error) {
+					return kernel.GoRunWithEnv(ctx, pkgDir, []string{"GOBOOK_EMBED_MODE=1"})
+				})
+			gen.EmbeddedCells = parseEmbedOutput(embedResult.Stdout)
+		}
 
 		cellResult, runErr := k.RunCell(ctx, "all", timeout,
 			func(ctx context.Context) (kernel.CellResult, error) {
@@ -205,6 +215,42 @@ func buildDocument(result core.ParseResult, cellOutput string, hasError bool) *d
 }
 
 // findModuleRoot finds the go-notebook module root.
+// hasEmbeddedCells returns true if any cell has data=embedded.
+func hasEmbeddedCells(gen core.GenerateResult) bool {
+	for _, cell := range gen.Cells {
+		if cell.DataMode == core.DataEmbedded {
+			return true
+		}
+	}
+	return false
+}
+
+// parseEmbedOutput extracts GOBOOK_EMBED:name:base64 lines from stdout.
+func parseEmbedOutput(stdout string) []core.EmbeddedCellData {
+	var embedded []core.EmbeddedCellData
+	for _, line := range strings.Split(stdout, "\n") {
+		if !strings.HasPrefix(line, "GOBOOK_EMBED:") {
+			continue
+		}
+		rest := strings.TrimPrefix(line, "GOBOOK_EMBED:")
+		idx := strings.Index(rest, ":")
+		if idx < 0 {
+			continue
+		}
+		name := rest[:idx]
+		b64Data := rest[idx+1:]
+		data, err := base64.StdEncoding.DecodeString(b64Data)
+		if err != nil {
+			continue
+		}
+		embedded = append(embedded, core.EmbeddedCellData{
+			CellName:      name,
+			EncryptedData: data, // Serialized cell data (would be encrypted in production).
+		})
+	}
+	return embedded
+}
+
 func findModuleRoot() string {
 	cmd := exec.Command("go", "env", "GOMOD")
 	out, err := cmd.Output()

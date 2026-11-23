@@ -136,3 +136,20 @@ func TestBenchmarkSmoke(t *testing.T) {
 		t.Errorf("exit %d: %s", cellResult.ExitCode, cellResult.Stderr)
 	}
 }
+
+func TestGoRunWithEnv(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test\n\ngo 1.27.4\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o644)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := GoRunWithEnv(ctx, dir, []string{"GOBOOK_TEST=1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ExitCode != 0 {
+		t.Errorf("exit code = %d, stderr: %s", result.ExitCode, result.Stderr)
+	}
+}

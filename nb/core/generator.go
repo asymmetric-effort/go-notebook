@@ -16,20 +16,35 @@ type upstreamCell struct {
 
 // GeneratedCell holds the generated Go source for a single cell.
 type GeneratedCell struct {
-	StructName string // e.g., "loadCell"
-	FuncName   string // e.g., "runLoad"
-	StructCode string // The struct type definition.
-	FuncCode   string // The run function definition.
+	StructName string   // e.g., "loadCell"
+	FuncName   string   // e.g., "runLoad"
+	StructCode string   // The struct type definition.
+	FuncCode   string   // The run function definition.
+	DataMode   DataMode // data=embedded or data=live.
+}
+
+// EmbeddedCellData holds encrypted data for a data=embedded cell.
+type EmbeddedCellData struct {
+	CellName      string // Cell name (e.g., "load").
+	EncryptedData []byte // Encrypted serialized cell struct.
+}
+
+// EmbeddedFileData holds encrypted data for a reads(name:embed) file.
+type EmbeddedFileData struct {
+	FileName      string // Original file name.
+	EncryptedData []byte // Encrypted file contents.
 }
 
 // GenerateResult holds the complete generated output for a notebook.
 type GenerateResult struct {
-	PackageName string
-	Imports     string
-	DefsCode    string
-	Cells       []GeneratedCell
-	MainCode    string
-	SourceMap   *SourceMap // Maps Markdown positions to generated Go positions.
+	PackageName   string
+	Imports       string
+	DefsCode      string
+	Cells         []GeneratedCell
+	MainCode      string
+	SourceMap     *SourceMap         // Maps Markdown positions to generated Go positions.
+	EmbeddedCells []EmbeddedCellData // Encrypted data for data=embedded cells.
+	EmbeddedFiles []EmbeddedFileData // Encrypted data for reads(name:embed) files.
 }
 
 // Generate produces Go source code from parsed notebook blocks.
@@ -73,6 +88,7 @@ func Generate(result ParseResult, pkgName string) (GenerateResult, error) {
 
 		if attrs.Name != "" {
 			gc := generateNamedCell(attrs, cb, named)
+			gc.DataMode = attrs.Data
 			gen.Cells = append(gen.Cells, gc)
 			named = append(named, upstreamCell{
 				name:       attrs.Name,

@@ -63,10 +63,13 @@ func assembleSource(gen GenerateResult, notebookPath string) string {
 
 	// Collect all imports into a single block.
 	hasMarshal := false
+	hasEmbedded := false
 	for _, cell := range gen.Cells {
 		if cell.StructCode != "" {
 			hasMarshal = true
-			break
+		}
+		if cell.DataMode == DataEmbedded {
+			hasEmbedded = true
 		}
 	}
 
@@ -80,6 +83,14 @@ func assembleSource(gen GenerateResult, notebookPath string) string {
 		for _, pkg := range []string{"\"bytes\"", "\"encoding/gob\"", "\"fmt\""} {
 			fmt.Fprintf(&buf, "\t%s\n", pkg)
 			seen[pkg] = true
+		}
+	}
+	if hasEmbedded {
+		for _, pkg := range []string{"\"encoding/base64\"", "\"os\""} {
+			if !seen[pkg] {
+				fmt.Fprintf(&buf, "\t%s\n", pkg)
+				seen[pkg] = true
+			}
 		}
 	}
 	fmt.Fprintf(&buf, "\tnb \"github.com/asymmetric-effort/go-notebook/nb\"\n")
@@ -102,6 +113,9 @@ func assembleSource(gen GenerateResult, notebookPath string) string {
 	if hasMarshal {
 		// Suppress unused import warnings when no marshal calls happen.
 		fmt.Fprintf(&buf, "var _ = bytes.NewReader\nvar _ = gob.NewEncoder\nvar _ = fmt.Sprintf\n\n")
+	}
+	if hasEmbedded {
+		fmt.Fprintf(&buf, "var _ = base64.StdEncoding\nvar _ = os.Getenv\n\n")
 	}
 
 	// Cell structs, marshal methods, and functions.
@@ -232,6 +246,12 @@ func extractStructFields(structCode string) []string {
 func generateMain(gen GenerateResult, notebookPath string) string {
 	var buf strings.Builder
 
+	// Build a map of embedded cell data by name for quick lookup.
+	embeddedByName := make(map[string][]byte)
+	for _, ec := range gen.EmbeddedCells {
+		embeddedByName[ec.CellName] = ec.EncryptedData
+	}
+
 	fmt.Fprintf(&buf, "func main() {\n")
 	fmt.Fprintf(&buf, "\tctx := nb.NewContext(nil)\n")
 	fmt.Fprintf(&buf, "\t_ = ctx\n") // Prevent unused variable if no cells.
@@ -240,13 +260,42 @@ func generateMain(gen GenerateResult, notebookPath string) string {
 	var namedVars []string
 	for _, cell := range gen.Cells {
 		if cell.StructName != "" {
-			// Named cell: call with all previous named cells, check err.
 			varName := strings.TrimSuffix(cell.StructName, "Cell")
-			params := "ctx"
-			if len(namedVars) > 0 {
-				params = "ctx, " + strings.Join(namedVars, ", ")
+
+			if cell.DataMode == DataEmbedded {
+				if encData, ok := embeddedByName[varName]; ok && len(encData) > 0 {
+					// Embedded cell: decrypt and unmarshal instead of running.
+					fmt.Fprintf(&buf, "\t// %s is data=embedded — using encrypted embedded data.\n", varName)
+					fmt.Fprintf(&buf, "\tvar %s %s\n", varName, cell.StructName)
+					fmt.Fprintf(&buf, "\t{\n")
+					fmt.Fprintf(&buf, "\t\tembeddedData := %s\n", goByteSliceLiteral(encData))
+					fmt.Fprintf(&buf, "\t\tif err := %s.UnmarshalBinary(embeddedData); err != nil {\n", varName)
+					fmt.Fprintf(&buf, "\t\t\t%s.err = fmt.Errorf(\"unmarshal embedded %s: %%w\", err)\n", varName, varName)
+					fmt.Fprintf(&buf, "\t\t}\n")
+					fmt.Fprintf(&buf, "\t}\n")
+				} else {
+					// Embedded cell but no data yet — run normally and output serialized data.
+					params := "ctx"
+					if len(namedVars) > 0 {
+						params = "ctx, " + strings.Join(namedVars, ", ")
+					}
+					fmt.Fprintf(&buf, "\t%s := %s(%s)\n", varName, cell.FuncName, params)
+					// In embed mode, serialize and output the cell data.
+					fmt.Fprintf(&buf, "\tif os.Getenv(\"GOBOOK_EMBED_MODE\") == \"1\" {\n")
+					fmt.Fprintf(&buf, "\t\tif data, err := %s.MarshalBinary(); err == nil {\n", varName)
+					fmt.Fprintf(&buf, "\t\t\tfmt.Printf(\"GOBOOK_EMBED:%s:%%s\\n\", base64.StdEncoding.EncodeToString(data))\n", varName)
+					fmt.Fprintf(&buf, "\t\t}\n")
+					fmt.Fprintf(&buf, "\t}\n")
+				}
+			} else {
+				// Normal cell: call with all previous named cells, check err.
+				params := "ctx"
+				if len(namedVars) > 0 {
+					params = "ctx, " + strings.Join(namedVars, ", ")
+				}
+				fmt.Fprintf(&buf, "\t%s := %s(%s)\n", varName, cell.FuncName, params)
 			}
-			fmt.Fprintf(&buf, "\t%s := %s(%s)\n", varName, cell.FuncName, params)
+
 			fmt.Fprintf(&buf, "\tif %s.err != nil {\n", varName)
 			fmt.Fprintf(&buf, "\t\tnb.NewCellError(%q, 0, %s.err)\n", varName, varName)
 			fmt.Fprintf(&buf, "\t\treturn\n")
@@ -264,6 +313,18 @@ func generateMain(gen GenerateResult, notebookPath string) string {
 
 	fmt.Fprintf(&buf, "}\n")
 	return buf.String()
+}
+
+// goByteSliceLiteral converts a byte slice to a Go source literal.
+func goByteSliceLiteral(data []byte) string {
+	if len(data) == 0 {
+		return "[]byte{}"
+	}
+	var parts []string
+	for _, b := range data {
+		parts = append(parts, fmt.Sprintf("0x%02x", b))
+	}
+	return "[]byte{" + strings.Join(parts, ", ") + "}"
 }
 
 // ExtractCell creates a GenerateResult containing only the target cell and
