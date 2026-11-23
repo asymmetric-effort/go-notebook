@@ -5,11 +5,21 @@ interface ReadFile {
   mode: "embed" | "runtime";
 }
 
-interface CellInfo {
-  name: string;
+interface BlockInfo {
+  kind: string;
   line: number;
-  exported: string;
+  end_line: number;
   body: string;
+  info: string;
+  name: string;
+  exported: string;
+}
+
+interface CellUpdateRequest {
+  line: number;
+  body: string;
+  name: string;
+  exported: string;
   reads: ReadFile[];
   writes: string[];
   secrets: string[];
@@ -17,23 +27,16 @@ interface CellInfo {
   timeout: string;
 }
 
-interface UpdateRequest {
+interface ProseUpdateRequest {
   line: number;
   body: string;
-  name: string;
-  exported: string;
-  reads: ReadFile[];
-  writes: string[];
-  secrets: string[];
-  data: string;
-  timeout: string;
 }
 
 interface ApiError {
   error: string;
 }
 
-class CellEditor {
+class NotebookEditor {
   private container: HTMLElement;
 
   constructor(container: HTMLElement) {
@@ -41,72 +44,222 @@ class CellEditor {
   }
 
   async load(): Promise<void> {
-    const resp = await fetch("/api/cells");
+    const resp = await fetch("/api/blocks");
     if (!resp.ok) {
       const err: ApiError = await resp.json() as ApiError;
-      this.showError("Failed to load cells: " + err.error);
+      this.showError("Failed to load notebook: " + err.error);
       return;
     }
-    const cells: CellInfo[] = await resp.json() as CellInfo[];
-    this.render(cells);
+    const blocks: BlockInfo[] = await resp.json() as BlockInfo[];
+    this.render(blocks);
   }
 
-  private render(cells: CellInfo[]): void {
+  private render(blocks: BlockInfo[]): void {
     this.container.innerHTML = "";
-    if (cells.length === 0) {
+    if (blocks.length === 0) {
       const p = document.createElement("p");
-      p.textContent = "No cells found in notebook.";
+      p.textContent = "Empty notebook.";
       this.container.appendChild(p);
       return;
     }
-    for (const cell of cells) {
-      this.container.appendChild(this.buildCellForm(cell));
+    for (const block of blocks) {
+      switch (block.kind) {
+        case "prose":
+          this.container.appendChild(this.buildProseForm(block));
+          break;
+        case "cell":
+          this.container.appendChild(this.buildCellForm(block));
+          break;
+        case "defs":
+          this.container.appendChild(this.buildDefsBlock(block));
+          break;
+        case "output":
+          this.container.appendChild(this.buildOutputBlock(block));
+          break;
+      }
     }
   }
 
-  private buildCellForm(cell: CellInfo): HTMLElement {
-    const section = document.createElement("section");
-    section.className = "cell";
-    section.dataset["line"] = String(cell.line);
+  // --- Prose editing ---
 
-    const heading = document.createElement("h2");
-    heading.textContent = cell.name ? "Cell: " + cell.name : "Cell (line " + cell.line + ")";
+  private buildProseForm(block: BlockInfo): HTMLElement {
+    const section = document.createElement("section");
+    section.className = "block prose-block";
+
+    const heading = document.createElement("h3");
+    heading.textContent = "Prose (line " + block.line + ")";
     section.appendChild(heading);
 
-    // Status message area
     const status = document.createElement("p");
     status.className = "status";
     section.appendChild(status);
 
-    // body
-    section.appendChild(this.labeledTextarea("Body", "body", cell.body, true));
-    // name
-    section.appendChild(this.labeledInput("Name", "name", cell.name));
-    // exported
-    section.appendChild(this.labeledInput("Exported", "exported", cell.exported));
-    // reads
-    section.appendChild(this.labeledInput("Reads (comma-separated, name:mode)", "reads", this.readsToString(cell.reads)));
-    // writes
-    section.appendChild(this.labeledInput("Writes (comma-separated)", "writes", (cell.writes ?? []).join(", ")));
-    // secrets
-    section.appendChild(this.labeledInput("Secrets (comma-separated)", "secrets", (cell.secrets ?? []).join(", ")));
-    // data
-    const dataField = this.labeledSelect("Data", "data", ["", "embedded", "live"], cell.data ?? "");
-    section.appendChild(dataField);
-    // timeout
-    section.appendChild(this.labeledInput("Timeout (e.g. 30s, 2m)", "timeout", cell.timeout ?? ""));
+    const ta = document.createElement("textarea");
+    ta.name = "prose-body";
+    ta.value = block.body;
+    ta.rows = Math.max(3, block.body.split("\n").length + 1);
+    ta.className = "prose-editor";
+    section.appendChild(ta);
 
-    // Save button
     const saveBtn = document.createElement("button");
     saveBtn.type = "button";
-    saveBtn.textContent = "Save";
+    saveBtn.textContent = "Save Prose";
     saveBtn.addEventListener("click", () => {
-      void this.saveCell(section, cell.line, status, heading);
+      void this.saveProse(block.line, ta, status);
     });
     section.appendChild(saveBtn);
 
     return section;
   }
+
+  private async saveProse(line: number, ta: HTMLTextAreaElement, status: HTMLElement): Promise<void> {
+    status.textContent = "Saving…";
+    status.className = "status";
+
+    const req: ProseUpdateRequest = {
+      line,
+      body: ta.value,
+    };
+
+    try {
+      const resp = await fetch("/api/prose/update", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+      });
+
+      if (!resp.ok) {
+        const err: ApiError = await resp.json() as ApiError;
+        status.textContent = "Error: " + err.error;
+        status.className = "status error";
+        return;
+      }
+
+      status.textContent = "Saved.";
+      status.className = "status ok";
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      status.textContent = "Network error: " + msg;
+      status.className = "status error";
+    }
+  }
+
+  // --- Cell editing ---
+
+  private buildCellForm(block: BlockInfo): HTMLElement {
+    const section = document.createElement("section");
+    section.className = "block cell-block";
+    section.dataset["line"] = String(block.line);
+
+    const heading = document.createElement("h2");
+    heading.textContent = block.name ? "Cell: " + block.name : "Cell (line " + block.line + ")";
+    section.appendChild(heading);
+
+    const status = document.createElement("p");
+    status.className = "status";
+    section.appendChild(status);
+
+    // body
+    section.appendChild(this.labeledTextarea("Body", "body", block.body, true));
+    // name
+    section.appendChild(this.labeledInput("Name", "name", block.name));
+    // exported
+    section.appendChild(this.labeledInput("Exported", "exported", block.exported));
+    // reads
+    section.appendChild(this.labeledInput("Reads (comma-separated, name:mode)", "reads", ""));
+    // writes
+    section.appendChild(this.labeledInput("Writes (comma-separated)", "writes", ""));
+    // secrets
+    section.appendChild(this.labeledInput("Secrets (comma-separated)", "secrets", ""));
+    // data
+    section.appendChild(this.labeledSelect("Data", "data", ["", "embedded", "live"], ""));
+    // timeout
+    section.appendChild(this.labeledInput("Timeout (e.g. 30s, 2m)", "timeout", ""));
+
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.textContent = "Save Cell";
+    saveBtn.addEventListener("click", () => {
+      void this.saveCell(section, block.line, status, heading);
+    });
+    section.appendChild(saveBtn);
+
+    return section;
+  }
+
+  private async saveCell(
+    section: HTMLElement,
+    line: number,
+    status: HTMLElement,
+    heading: HTMLElement,
+  ): Promise<void> {
+    status.textContent = "Saving…";
+    status.className = "status";
+
+    const req: CellUpdateRequest = {
+      line,
+      body: this.getValue(section, "body"),
+      name: this.getValue(section, "name"),
+      exported: this.getValue(section, "exported"),
+      reads: this.parseReads(this.getValue(section, "reads")),
+      writes: this.parseCSV(this.getValue(section, "writes")),
+      secrets: this.parseCSV(this.getValue(section, "secrets")),
+      data: this.getValue(section, "data"),
+      timeout: this.getValue(section, "timeout"),
+    };
+
+    try {
+      const resp = await fetch("/api/cells/update", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+      });
+
+      if (!resp.ok) {
+        const err: ApiError = await resp.json() as ApiError;
+        status.textContent = "Error: " + err.error;
+        status.className = "status error";
+        return;
+      }
+
+      status.textContent = "Saved.";
+      status.className = "status ok";
+      const newName = req.name;
+      heading.textContent = newName ? "Cell: " + newName : "Cell (line " + line + ")";
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      status.textContent = "Network error: " + msg;
+      status.className = "status error";
+    }
+  }
+
+  // --- Read-only blocks ---
+
+  private buildDefsBlock(block: BlockInfo): HTMLElement {
+    const section = document.createElement("section");
+    section.className = "block defs-block";
+    const heading = document.createElement("h3");
+    heading.textContent = "Definitions (line " + block.line + ")";
+    section.appendChild(heading);
+    const pre = document.createElement("pre");
+    pre.textContent = block.body;
+    section.appendChild(pre);
+    return section;
+  }
+
+  private buildOutputBlock(block: BlockInfo): HTMLElement {
+    const section = document.createElement("section");
+    section.className = "block output-block";
+    const heading = document.createElement("h3");
+    heading.textContent = "Output (line " + block.line + ")";
+    section.appendChild(heading);
+    const pre = document.createElement("pre");
+    pre.textContent = block.body;
+    section.appendChild(pre);
+    return section;
+  }
+
+  // --- Helpers ---
 
   private labeledInput(label: string, name: string, value: string): HTMLElement {
     const div = document.createElement("div");
@@ -130,7 +283,7 @@ class CellEditor {
     const ta = document.createElement("textarea");
     ta.name = name;
     ta.value = value ?? "";
-    ta.rows = 8;
+    ta.rows = Math.max(4, (value ?? "").split("\n").length + 1);
     if (monospace) {
       ta.className = "mono";
     }
@@ -160,11 +313,6 @@ class CellEditor {
     return div;
   }
 
-  private readsToString(reads: ReadFile[]): string {
-    if (!reads || reads.length === 0) return "";
-    return reads.map(r => r.name + ":" + r.mode).join(", ");
-  }
-
   private parseReads(raw: string): ReadFile[] {
     if (!raw.trim()) return [];
     return raw.split(",").map(s => s.trim()).filter(s => s.length > 0).map(s => {
@@ -188,53 +336,6 @@ class CellEditor {
     return el ? el.value : "";
   }
 
-  private async saveCell(
-    section: HTMLElement,
-    line: number,
-    status: HTMLElement,
-    heading: HTMLElement,
-  ): Promise<void> {
-    status.textContent = "Saving…";
-    status.className = "status";
-
-    const req: UpdateRequest = {
-      line,
-      body: this.getValue(section, "body"),
-      name: this.getValue(section, "name"),
-      exported: this.getValue(section, "exported"),
-      reads: this.parseReads(this.getValue(section, "reads")),
-      writes: this.parseCSV(this.getValue(section, "writes")),
-      secrets: this.parseCSV(this.getValue(section, "secrets")),
-      data: this.getValue(section, "data"),
-      timeout: this.getValue(section, "timeout"),
-    };
-
-    try {
-      const resp = await fetch("/api/cells/update", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req),
-      });
-
-      if (!resp.ok) {
-        const err: ApiError = await resp.json() as ApiError;
-        status.textContent = "Error: " + err.error;
-        status.className = "status error";
-        return;
-      }
-
-      status.textContent = "Saved.";
-      status.className = "status ok";
-      // Update heading to reflect possible name change.
-      const newName = req.name;
-      heading.textContent = newName ? "Cell: " + newName : "Cell (line " + line + ")";
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      status.textContent = "Network error: " + msg;
-      status.className = "status error";
-    }
-  }
-
   private showError(msg: string): void {
     const p = document.createElement("p");
     p.className = "status error";
@@ -244,8 +345,8 @@ class CellEditor {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  const container = document.getElementById("cells");
+  const container = document.getElementById("notebook");
   if (!container) return;
-  const editor = new CellEditor(container);
+  const editor = new NotebookEditor(container);
   void editor.load();
 });
