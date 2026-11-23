@@ -41,7 +41,7 @@ struct Response {
     input_len: Option<usize>,
 }
 
-/// Minimal World implementation for WASM — no fonts, no files.
+/// Minimal World implementation for WASM with embedded fonts.
 struct WasmWorld {
     library: LazyHash<Library>,
     book: LazyHash<FontBook>,
@@ -52,11 +52,23 @@ struct WasmWorld {
 impl WasmWorld {
     fn new(source_text: &str) -> Self {
         let main_id = FileId::new(None, typst::syntax::VirtualPath::new("main.typ"));
+
+        // Load embedded fonts from typst-assets.
+        let mut book = FontBook::new();
+        let mut fonts = Vec::new();
+        for font_data in typst_assets::fonts() {
+            let buffer = Bytes::new(font_data.to_vec());
+            for font in Font::iter(buffer) {
+                book.push(font.info().clone());
+                fonts.push(font);
+            }
+        }
+
         Self {
             library: LazyHash::new(Library::default()),
-            book: LazyHash::new(FontBook::new()),
+            book: LazyHash::new(book),
             source: Source::new(main_id, source_text.into()),
-            fonts: Vec::new(),
+            fonts,
         }
     }
 }

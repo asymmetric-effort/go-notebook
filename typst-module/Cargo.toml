@@ -12,6 +12,7 @@ path = "src/main.rs"
 typst = "0.13"
 typst-library = "0.13"
 typst-pdf = "0.13"
+typst-assets = { version = "0.13", features = ["fonts"] }
 resvg = "0.45"
 usvg = "0.45"
 tiny-skia = "0.11"
