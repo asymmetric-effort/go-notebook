@@ -17,7 +17,7 @@ func RenderBarSVG(c Bar) string {
 	margin := 60
 
 	var buf strings.Builder
-	fmt.Fprintf(&buf, `<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">`, width, height, width, height)
+	buf.WriteString(svgOpenTag(width, height, "bar", c.Title, c.Labels, nil, c.Series))
 	buf.WriteString("\n")
 
 	if c.Title != "" {
@@ -55,7 +55,12 @@ func RenderBarSVG(c Bar) string {
 			barH := (v / maxVal) * chartH
 			x := float64(margin) + float64(li)*chartW/float64(len(c.Labels)) + float64(si)*barW
 			y := float64(margin) + chartH - barH
-			fmt.Fprintf(&buf, `<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="%s"/>`, x, y, barW*0.9, barH, color)
+			label := ""
+			if li < len(c.Labels) {
+				label = c.Labels[li] + ": "
+			}
+			fmt.Fprintf(&buf, `<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="%s"><title>%s%s: %.2f</title></rect>`,
+				x, y, barW*0.9, barH, color, html.EscapeString(label), html.EscapeString(s.Name), v)
 			buf.WriteString("\n")
 		}
 	}
@@ -79,7 +84,7 @@ func RenderLineSVG(c Line) string {
 	margin := 60
 
 	var buf strings.Builder
-	fmt.Fprintf(&buf, `<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">`, width, height, width, height)
+	buf.WriteString(svgOpenTag(width, height, "line", c.Title, nil, c.X, c.Series))
 	buf.WriteString("\n")
 
 	if c.Title != "" {
@@ -138,8 +143,10 @@ func RenderPieSVG(c Pie) string {
 	cx, cy := float64(width)/2, float64(height)/2
 	radius := 150.0
 
+	// Convert Pie to series format for data embedding.
+	pieSeries := []Series{{Name: "values", Values: c.Values}}
 	var buf strings.Builder
-	fmt.Fprintf(&buf, `<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">`, width, height, width, height)
+	buf.WriteString(svgOpenTag(width, height, "pie", c.Title, c.Labels, nil, pieSeries))
 	buf.WriteString("\n")
 
 	if c.Title != "" {
