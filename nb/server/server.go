@@ -46,6 +46,8 @@ func New(notebookPath, addr string) *Server {
 	s.mux.HandleFunc("/api/status", s.handleStatus)
 	s.mux.HandleFunc("/api/cells", s.handleCells)
 	s.mux.HandleFunc("/api/cells/update", s.handleCellsUpdate)
+	s.mux.HandleFunc("/api/blocks", s.handleBlocks)
+	s.mux.HandleFunc("/api/prose/update", s.handleProseUpdate)
 	s.mux.HandleFunc("/api/run", s.handleRun)
 	s.mux.HandleFunc("/api/editor", s.handleEditor)
 
@@ -354,6 +356,126 @@ func (s *Server) handleEditor(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(data)
+}
+
+// blockInfo describes a block for the /api/blocks endpoint.
+type blockInfo struct {
+	Kind     string `json:"kind"`               // "prose", "cell", "defs", "output"
+	Line     int    `json:"line"`               // Start line (1-based).
+	EndLine  int    `json:"end_line"`           // End line (1-based).
+	Body     string `json:"body"`               // Block content.
+	Info     string `json:"info,omitempty"`     // Info string for fenced blocks.
+	Name     string `json:"name,omitempty"`     // Cell name (cells only).
+	Exported string `json:"exported,omitempty"` // Exported fields (cells only).
+}
+
+func (s *Server) handleBlocks(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	src, err := os.ReadFile(s.notebookPath)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	result := core.Parse(string(src))
+	var blocks []blockInfo
+	for _, b := range result.Blocks {
+		bi := blockInfo{
+			Kind:    b.Kind.String(),
+			Line:    b.StartPos.Line,
+			EndLine: b.EndPos.Line,
+			Body:    b.Body,
+			Info:    b.Info,
+		}
+		if b.Kind == core.BlockCell {
+			attrs, _ := core.ParseInfoString(b.Info, b.StartPos.Line)
+			bi.Name = attrs.Name
+			bi.Exported = attrs.Exported
+		}
+		blocks = append(blocks, bi)
+	}
+
+	writeJSON(w, http.StatusOK, blocks)
+}
+
+// proseUpdateRequest is the JSON body for PUT /api/prose/update.
+type proseUpdateRequest struct {
+	Line int    `json:"line"` // Start line of the prose block (1-based).
+	Body string `json:"body"` // New prose content.
+}
+
+func (s *Server) handleProseUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req proseUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
+		return
+	}
+
+	src, err := os.ReadFile(s.notebookPath)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	updated, err := rewriteProse(string(src), req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if err := os.WriteFile(s.notebookPath, []byte(updated), 0o644); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// rewriteProse replaces a prose block's content in the source, preserving
+// all other blocks (cells, defs, output) untouched.
+func rewriteProse(src string, req proseUpdateRequest) (string, error) {
+	result := core.Parse(src)
+
+	var target *core.Block
+	for i := range result.Blocks {
+		b := &result.Blocks[i]
+		if b.Kind == core.BlockProse && b.StartPos.Line == req.Line {
+			target = b
+			break
+		}
+	}
+	if target == nil {
+		return "", fmt.Errorf("no prose block found at line %d", req.Line)
+	}
+
+	lines := strings.Split(src, "\n")
+	startIdx := target.StartPos.Line - 1 // 0-based
+	endIdx := target.EndPos.Line - 1
+
+	if startIdx < 0 || endIdx >= len(lines) {
+		return "", fmt.Errorf("prose block lines %d-%d out of range", target.StartPos.Line, target.EndPos.Line)
+	}
+
+	// Replace lines [startIdx, endIdx] inclusive with new body.
+	newLines := strings.Split(req.Body, "\n")
+
+	var out []string
+	out = append(out, lines[:startIdx]...)
+	out = append(out, newLines...)
+	if endIdx+1 < len(lines) {
+		out = append(out, lines[endIdx+1:]...)
+	}
+
+	return strings.Join(out, "\n"), nil
 }
 
 // runResponse is the JSON response for /api/run.

@@ -434,3 +434,214 @@ func TestExtractFencePrefix(t *testing.T) {
 		}
 	}
 }
+
+func TestBlocksEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "# Title\n\nSome prose.\n\n```go:notebook name=test exported(val int)\nval = 42\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest("GET", "/api/blocks", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	var blocks []blockInfo
+	json.Unmarshal(w.Body.Bytes(), &blocks)
+
+	if len(blocks) < 2 {
+		t.Fatalf("got %d blocks, want at least 2", len(blocks))
+	}
+	if blocks[0].Kind != "prose" {
+		t.Errorf("blocks[0].Kind = %q, want prose", blocks[0].Kind)
+	}
+	if !strings.Contains(blocks[0].Body, "Title") {
+		t.Error("prose block should contain title")
+	}
+	foundCell := false
+	for _, b := range blocks {
+		if b.Kind == "cell" && b.Name == "test" {
+			foundCell = true
+		}
+	}
+	if !foundCell {
+		t.Error("no cell block found")
+	}
+}
+
+func TestBlocksEndpointMethodNotAllowed(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest("POST", "/api/blocks", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestProseUpdateEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "# Original Title\n\nSome prose.\n\n```go:notebook name=test exported(val int)\nval = 42\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	s := New(notebook, ":0")
+
+	// Get blocks to find the prose start line.
+	getReq := httptest.NewRequest("GET", "/api/blocks", nil)
+	getW := httptest.NewRecorder()
+	s.Handler().ServeHTTP(getW, getReq)
+
+	var blocks []blockInfo
+	json.Unmarshal(getW.Body.Bytes(), &blocks)
+	if len(blocks) == 0 {
+		t.Fatal("no blocks")
+	}
+	proseLine := blocks[0].Line
+
+	updateBody, _ := json.Marshal(proseUpdateRequest{
+		Line: proseLine,
+		Body: "# Updated Title\n\nNew prose content.",
+	})
+	putReq := httptest.NewRequest("PUT", "/api/prose/update", bytes.NewReader(updateBody))
+	putReq.Header.Set("Content-Type", "application/json")
+	putW := httptest.NewRecorder()
+	s.Handler().ServeHTTP(putW, putReq)
+
+	if putW.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", putW.Code, putW.Body.String())
+	}
+
+	data, _ := os.ReadFile(notebook)
+	content := string(data)
+	if !strings.Contains(content, "Updated Title") {
+		t.Error("prose should be updated")
+	}
+	if !strings.Contains(content, "val = 42") {
+		t.Error("cell body should be preserved after prose update")
+	}
+}
+
+func TestProseUpdateNotFound(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	updateBody, _ := json.Marshal(proseUpdateRequest{Line: 999, Body: "new"})
+	req := httptest.NewRequest("PUT", "/api/prose/update", bytes.NewReader(updateBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestProseUpdateMethodNotAllowed(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest("GET", "/api/prose/update", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestProseUpdatePreservesCells(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "# Title\n\n```go:notebook name=a exported(x int)\nx = 1\n```\n\nMiddle prose.\n\n```go:notebook name=b exported(y int)\ny = 2\n```\n\nEnd prose.\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	s := New(notebook, ":0")
+
+	getReq := httptest.NewRequest("GET", "/api/blocks", nil)
+	getW := httptest.NewRecorder()
+	s.Handler().ServeHTTP(getW, getReq)
+
+	var blocks []blockInfo
+	json.Unmarshal(getW.Body.Bytes(), &blocks)
+
+	var middleLine int
+	for _, b := range blocks {
+		if b.Kind == "prose" && strings.Contains(b.Body, "Middle") {
+			middleLine = b.Line
+			break
+		}
+	}
+	if middleLine == 0 {
+		t.Fatal("middle prose block not found")
+	}
+
+	updateBody, _ := json.Marshal(proseUpdateRequest{
+		Line: middleLine,
+		Body: "Updated middle prose with **more content**.",
+	})
+	putReq := httptest.NewRequest("PUT", "/api/prose/update", bytes.NewReader(updateBody))
+	putReq.Header.Set("Content-Type", "application/json")
+	putW := httptest.NewRecorder()
+	s.Handler().ServeHTTP(putW, putReq)
+
+	if putW.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", putW.Code, putW.Body.String())
+	}
+
+	data, _ := os.ReadFile(notebook)
+	content := string(data)
+	if !strings.Contains(content, "Updated middle prose") {
+		t.Error("updated prose missing")
+	}
+	if !strings.Contains(content, "x = 1") {
+		t.Error("cell a body altered")
+	}
+	if !strings.Contains(content, "y = 2") {
+		t.Error("cell b body altered")
+	}
+	if !strings.Contains(content, "name=a") {
+		t.Error("cell a info altered")
+	}
+	if !strings.Contains(content, "name=b") {
+		t.Error("cell b info altered")
+	}
+	if !strings.Contains(content, "End prose") {
+		t.Error("end prose altered")
+	}
+}
+
+func TestRewriteProseUnit(t *testing.T) {
+	src := "# Title\n\nProse here.\n\n```go:notebook name=test\nval = 1\n```\n"
+	updated, err := rewriteProse(src, proseUpdateRequest{Line: 1, Body: "# New Title\n\nNew prose."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(updated, "New Title") {
+		t.Error("title should be updated")
+	}
+	if !strings.Contains(updated, "val = 1") {
+		t.Error("cell should be preserved")
+	}
+}
+
+func TestRewriteProseNotFound(t *testing.T) {
+	src := "# Title\n"
+	_, err := rewriteProse(src, proseUpdateRequest{Line: 999, Body: "new"})
+	if err == nil {
+		t.Error("expected error for nonexistent prose block")
+	}
+}
