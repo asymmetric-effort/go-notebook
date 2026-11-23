@@ -65,6 +65,26 @@ func TestHasNoEmbeddedCells(t *testing.T) {
 	}
 }
 
+func TestBuildWithLiveCell(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "```go:notebook name=test exported(val int) data=live\nval = 42\n```\n"
+	if err := os.WriteFile(notebook, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outPath := filepath.Join(dir, "out.html")
+	err := Run(notebook, Options{Format: "html", Output: outPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, _ := os.ReadFile(outPath)
+	if !strings.Contains(string(data), "<!DOCTYPE html>") {
+		t.Error("should produce valid HTML")
+	}
+}
+
 func TestBuildWithEmbeddedCell(t *testing.T) {
 	dir := t.TempDir()
 	notebook := filepath.Join(dir, "test.md")

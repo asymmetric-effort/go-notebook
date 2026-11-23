@@ -15,6 +15,57 @@ import (
 	"github.com/asymmetric-effort/go-notebook/nb/chart"
 )
 
+func TestContextOpenRuntimeFallback(t *testing.T) {
+	// When fs.FS doesn't have the file, Open falls back to working directory.
+	dir := t.TempDir()
+	orig, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(orig)
+
+	os.WriteFile(filepath.Join(dir, "runtime.txt"), []byte("runtime data"), 0o644)
+
+	ctx := NewContext(nil) // No embedded FS.
+	f, err := ctx.Open("runtime.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	buf := make([]byte, 100)
+	n, _ := f.Read(buf)
+	if string(buf[:n]) != "runtime data" {
+		t.Errorf("read = %q", buf[:n])
+	}
+}
+
+func TestContextOpenRuntime(t *testing.T) {
+	dir := t.TempDir()
+	orig, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(orig)
+
+	os.WriteFile(filepath.Join(dir, "data.csv"), []byte("a,b,c"), 0o644)
+
+	ctx := NewContext(nil)
+	f, err := ctx.OpenRuntime("data.csv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	buf := make([]byte, 100)
+	n, _ := f.Read(buf)
+	if string(buf[:n]) != "a,b,c" {
+		t.Errorf("read = %q", buf[:n])
+	}
+}
+
+func TestContextOpenRuntimeMissing(t *testing.T) {
+	ctx := NewContext(nil)
+	_, err := ctx.OpenRuntime("/nonexistent/file.csv")
+	if err == nil {
+		t.Error("expected error for missing runtime file")
+	}
+}
+
 func TestContextOpen(t *testing.T) {
 	fsys := fstest.MapFS{
 		"test.txt": {Data: []byte("hello")},
