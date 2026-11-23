@@ -537,14 +537,24 @@ type runRequest struct {
 	Cell string `json:"cell,omitempty"` // Cell name to run (empty = run all).
 }
 
+// cellError is a parsed error with cell and line context.
+type cellError struct {
+	Message string `json:"message"`        // Human-readable error message.
+	Cell    string `json:"cell,omitempty"` // Cell name where the error occurred.
+	File    string `json:"file,omitempty"` // Source file (notebook.md).
+	Line    int    `json:"line,omitempty"` // Markdown line number (1-based).
+	Kind    string `json:"kind,omitempty"` // "compile", "runtime", "panic", "timeout"
+}
+
 // runResponse is the JSON response for /api/run.
 type runResponse struct {
-	Cell     string `json:"cell,omitempty"`
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
-	ExitCode int    `json:"exit_code"`
-	Error    string `json:"error,omitempty"`
-	Refused  string `json:"refused,omitempty"` // Name of failed upstream if refused.
+	Cell     string      `json:"cell,omitempty"`
+	Stdout   string      `json:"stdout"`
+	Stderr   string      `json:"stderr"`
+	ExitCode int         `json:"exit_code"`
+	Error    string      `json:"error,omitempty"`
+	Refused  string      `json:"refused,omitempty"` // Name of failed upstream if refused.
+	Errors   []cellError `json:"errors,omitempty"`  // Parsed errors with cell/line context.
 }
 
 // handleRun runs a single cell or all cells. Accepts optional JSON body
@@ -813,6 +823,9 @@ func (s *Server) executeNotebook(r *http.Request, cellName string) runResponse {
 		resp.Error = runErr.Error()
 	}
 
+	// Parse errors from stderr and the error message.
+	resp.Errors = parseRunErrors(cellResult.Stderr, resp.Error, cellName)
+
 	// Update cell state.
 	s.mu.Lock()
 	s.cellStates[cellName] = &cellState{
@@ -827,6 +840,109 @@ func (s *Server) executeNotebook(r *http.Request, cellName string) runResponse {
 	s.mu.Unlock()
 
 	return resp
+}
+
+// parseRunErrors extracts structured errors from stderr output and error
+// messages. It recognizes Go compile errors with //line directives,
+// panics caught by deferred recovery, and timeout errors.
+// Stack traces are stripped to show only the actionable message.
+func parseRunErrors(stderr, errMsg, cellName string) []cellError {
+	var errs []cellError
+
+	// Check for timeout.
+	if strings.Contains(errMsg, "timed out") || strings.Contains(errMsg, "context deadline") {
+		errs = append(errs, cellError{
+			Message: "Cell timed out. Increase the timeout or check for infinite loops.",
+			Cell:    cellName,
+			Kind:    "timeout",
+		})
+		return errs
+	}
+
+	// Parse compile errors from stderr (format: "file:line:col: message").
+	for _, line := range strings.Split(stderr, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Skip stack traces (goroutine lines, runtime lines).
+		if strings.HasPrefix(line, "goroutine ") || strings.HasPrefix(line, "\t") ||
+			strings.Contains(line, "runtime.") || strings.Contains(line, "runtime/") {
+			continue
+		}
+		// Parse "notebook.md:LINE:COL: message" format from //line directives.
+		if ce := parseCompileError(line); ce != nil {
+			errs = append(errs, *ce)
+			continue
+		}
+		// Parse gobook cell error format.
+		if strings.HasPrefix(line, "cell ") || strings.Contains(line, "CellError") {
+			errs = append(errs, cellError{
+				Message: line,
+				Cell:    cellName,
+				Kind:    "runtime",
+			})
+			continue
+		}
+		// Parse panic messages from deferred recovery.
+		if strings.Contains(line, "panic:") || strings.Contains(line, "recovered panic") {
+			msg := line
+			// Strip "panic: " prefix for cleaner display.
+			if idx := strings.Index(msg, "panic: "); idx >= 0 {
+				msg = msg[idx+7:]
+			}
+			errs = append(errs, cellError{
+				Message: "Panic: " + msg,
+				Cell:    cellName,
+				Kind:    "panic",
+			})
+			continue
+		}
+	}
+
+	// If we have an error message but no parsed errors, add a generic one.
+	if errMsg != "" && len(errs) == 0 {
+		errs = append(errs, cellError{
+			Message: errMsg,
+			Cell:    cellName,
+			Kind:    "runtime",
+		})
+	}
+
+	return errs
+}
+
+// parseCompileError parses a Go compiler error line with //line directives.
+// Format: "notebook.md:LINE:COL: message" or "./main.go:LINE:COL: message"
+func parseCompileError(line string) *cellError {
+	// Look for "file:line:col: message" pattern.
+	parts := strings.SplitN(line, ":", 4)
+	if len(parts) < 4 {
+		return nil
+	}
+	file := parts[0]
+	lineNum := 0
+	for _, ch := range parts[1] {
+		if ch >= '0' && ch <= '9' {
+			lineNum = lineNum*10 + int(ch-'0')
+		} else {
+			return nil
+		}
+	}
+	if lineNum == 0 {
+		return nil
+	}
+	msg := strings.TrimSpace(parts[3])
+	if msg == "" {
+		return nil
+	}
+
+	return &cellError{
+		Message: msg,
+		File:    file,
+		Line:    lineNum,
+		Kind:    "compile",
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
