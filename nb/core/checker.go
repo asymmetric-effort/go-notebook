@@ -212,6 +212,9 @@ var imageRefRegex = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
 // htmlTagRegex matches HTML tags in prose.
 var htmlTagRegex = regexp.MustCompile(`<(/?)([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>`)
 
+// htmlAttrRegex matches HTML attributes like name="value" or name='value'.
+var htmlAttrRegex = regexp.MustCompile(`\b([a-zA-Z][a-zA-Z0-9-]*)=["']([^"']*?)["']`)
+
 // checkProse enforces rules 16-21 on prose blocks.
 func checkProse(b Block, opts CheckOptions) []error {
 	var errs []error
@@ -266,7 +269,7 @@ func checkProse(b Block, opts CheckOptions) []error {
 			}
 		}
 
-		// Rule 18: Raw HTML uses only allowlisted tags.
+		// Rule 18: Raw HTML uses only allowlisted tags and attributes.
 		for _, match := range htmlTagRegex.FindAllStringSubmatch(line, -1) {
 			tag := match[2]
 			if IsRefusedTag(tag) {
@@ -274,6 +277,25 @@ func checkProse(b Block, opts CheckOptions) []error {
 					Line:    mdLine,
 					Message: fmt.Sprintf("<%s> is not allowed in notebook prose (rule 18). Refused tags: script, iframe, frame, object, embed, base, meta.", tag),
 				})
+			}
+		}
+		// Check for refused attributes (on* handlers) and javascript: URLs.
+		for _, match := range htmlAttrRegex.FindAllStringSubmatch(line, -1) {
+			attr := match[1]
+			val := match[2]
+			if IsRefusedAttribute(attr) {
+				errs = append(errs, &CheckError{
+					Line:    mdLine,
+					Message: fmt.Sprintf("attribute %q is not allowed (rule 18). Event handlers are refused.", attr),
+				})
+			}
+			if strings.EqualFold(attr, "href") || strings.EqualFold(attr, "src") || strings.EqualFold(attr, "action") {
+				if IsJavascriptURL(val) {
+					errs = append(errs, &CheckError{
+						Line:    mdLine,
+						Message: fmt.Sprintf("javascript: URL in %q attribute is not allowed (rule 18).", attr),
+					})
+				}
 			}
 		}
 
