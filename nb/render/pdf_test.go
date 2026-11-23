@@ -149,6 +149,49 @@ func TestIsTypstThematicBreak(t *testing.T) {
 	}
 }
 
+func TestTypstSVGChart(t *testing.T) {
+	doc := document.NewDocument()
+	doc.AddDisplay("chart", "image/svg+xml", "<svg><rect/></svg>")
+	result := Typst(doc)
+	if !strings.Contains(result, "image.decode") {
+		t.Error("SVG chart should use image.decode")
+	}
+	if !strings.Contains(result, "format: \"svg\"") {
+		t.Error("SVG chart should specify svg format")
+	}
+}
+
+func TestTypstRasterImage(t *testing.T) {
+	doc := document.NewDocument()
+	doc.AddImage("test.png", "image/png", "iVBORw0KGgo=")
+	result := Typst(doc)
+	if !strings.Contains(result, "image.decode") {
+		t.Error("raster image should use image.decode")
+	}
+}
+
+func TestSvgToTypstBytes(t *testing.T) {
+	result := svgToTypstBytes("AB")
+	if result != "65, 66" {
+		t.Errorf("svgToTypstBytes(\"AB\") = %q, want \"65, 66\"", result)
+	}
+}
+
+func TestBase64ToTypstBytes(t *testing.T) {
+	// "hi" in base64 is "aGk="
+	result := base64ToTypstBytes("aGk=")
+	if result != "104, 105" {
+		t.Errorf("base64ToTypstBytes = %q, want \"104, 105\"", result)
+	}
+}
+
+func TestBase64ToTypstBytesInvalid(t *testing.T) {
+	result := base64ToTypstBytes("!!!invalid!!!")
+	if result != "0" {
+		t.Errorf("invalid base64 = %q, want \"0\"", result)
+	}
+}
+
 func TestTypstPreamble(t *testing.T) {
 	doc := document.NewDocument()
 	result := Typst(doc)
