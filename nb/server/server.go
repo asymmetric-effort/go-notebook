@@ -76,20 +76,34 @@ func New(notebookPath, addr string) *Server {
 	return s
 }
 
+// cspPolicy is the Content-Security-Policy for editor pages.
+// It blocks all remote loads, inline scripts, and object/embed/frame elements.
+const cspPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; frame-src 'none'; base-uri 'self'"
+
+// Handler returns the HTTP handler with CSP middleware for testing.
+func (s *Server) Handler() http.Handler {
+	return cspMiddleware(s.mux)
+}
+
+// cspMiddleware wraps a handler to set the Content-Security-Policy header
+// on every response.
+func cspMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", cspPolicy)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		next.ServeHTTP(w, r)
+	})
+}
+
 // ListenAndServe starts the HTTP server.
 func (s *Server) ListenAndServe() error {
 	srv := &http.Server{
 		Addr:              s.addr,
-		Handler:           s.mux,
+		Handler:           cspMiddleware(s.mux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	fmt.Fprintf(os.Stderr, "gobook serve: %s on %s\n", s.notebookPath, s.addr)
 	return srv.ListenAndServe()
-}
-
-// Handler returns the HTTP handler for testing.
-func (s *Server) Handler() http.Handler {
-	return s.mux
 }
 
 // statusResponse is the JSON response for /api/status.
@@ -826,6 +840,9 @@ func (s *Server) executeNotebook(r *http.Request, cellName string) runResponse {
 	// Parse errors from stderr and the error message.
 	resp.Errors = parseRunErrors(cellResult.Stderr, resp.Error, cellName)
 
+	// Sanitize output: strip raw SVG content from stdout.
+	resp.Stdout = sanitizeOutput(resp.Stdout)
+
 	// Update cell state.
 	s.mu.Lock()
 	s.cellStates[cellName] = &cellState{
@@ -943,6 +960,39 @@ func parseCompileError(line string) *cellError {
 		Line:    lineNum,
 		Kind:    "compile",
 	}
+}
+
+// sanitizeOutput strips raw SVG content from cell output to prevent
+// untrusted SVG from reaching the browser. SVG can contain embedded
+// scripts and event handlers. Only tool-generated chart SVG (which is
+// rendered via the chart package) is safe; raw SVG from cell stdout is not.
+func sanitizeOutput(output string) string {
+	// Simple heuristic: if output contains an SVG tag, strip the SVG block.
+	lower := strings.ToLower(output)
+	if !strings.Contains(lower, "<svg") {
+		return output
+	}
+
+	var result strings.Builder
+	lines := strings.Split(output, "\n")
+	inSVG := false
+	for _, line := range lines {
+		lower := strings.ToLower(strings.TrimSpace(line))
+		if strings.Contains(lower, "<svg") {
+			inSVG = true
+			result.WriteString("[SVG content stripped for security]\n")
+			continue
+		}
+		if inSVG {
+			if strings.Contains(lower, "</svg>") {
+				inSVG = false
+			}
+			continue
+		}
+		result.WriteString(line)
+		result.WriteString("\n")
+	}
+	return strings.TrimRight(result.String(), "\n")
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
