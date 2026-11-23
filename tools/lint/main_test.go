@@ -75,9 +75,10 @@ func TestModuleRoot(t *testing.T) {
 	}
 }
 
-func TestHasTypeScriptFilesNone(t *testing.T) {
-	if hasTypeScriptFiles() {
-		t.Error("hasTypeScriptFiles() = true, want false")
+func TestHasTypeScriptFiles(t *testing.T) {
+	// The repo has TypeScript files (nb/server/static/editor.ts).
+	if !hasTypeScriptFiles() {
+		t.Error("hasTypeScriptFiles() = false, want true")
 	}
 }
 

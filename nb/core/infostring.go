@@ -235,6 +235,60 @@ func parseTimeoutAttr(s string, line int) (time.Duration, string, error) {
 	return dur, strings.TrimSpace(s[len(word):]), nil
 }
 
+// FormatInfoString converts CellAttrs back to a "go:notebook ..." info string.
+// The output is canonical and round-trips cleanly through ParseInfoString.
+func FormatInfoString(attrs CellAttrs) string {
+	var sb strings.Builder
+	sb.WriteString("go:notebook")
+
+	if attrs.Name != "" {
+		sb.WriteString(" name=")
+		sb.WriteString(attrs.Name)
+	}
+	if attrs.Exported != "" {
+		sb.WriteString(" exported(")
+		sb.WriteString(attrs.Exported)
+		sb.WriteString(")")
+	}
+	if len(attrs.Reads) > 0 {
+		sb.WriteString(" reads(")
+		for i, rf := range attrs.Reads {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(rf.Name)
+			sb.WriteString(":")
+			switch rf.Mode {
+			case FileModeEmbed:
+				sb.WriteString("embed")
+			case FileModeRuntime:
+				sb.WriteString("runtime")
+			}
+		}
+		sb.WriteString(")")
+	}
+	if len(attrs.Writes) > 0 {
+		sb.WriteString(" writes(")
+		sb.WriteString(strings.Join(attrs.Writes, ", "))
+		sb.WriteString(")")
+	}
+	if len(attrs.Secrets) > 0 {
+		sb.WriteString(" secrets(")
+		sb.WriteString(strings.Join(attrs.Secrets, ", "))
+		sb.WriteString(")")
+	}
+	if attrs.Data != DataNone {
+		sb.WriteString(" data=")
+		sb.WriteString(attrs.Data.String())
+	}
+	if attrs.Timeout != 0 {
+		sb.WriteString(" timeout=")
+		sb.WriteString(attrs.Timeout.String())
+	}
+
+	return sb.String()
+}
+
 // nextWord returns the next whitespace-delimited word from s.
 func nextWord(s string) string {
 	i := strings.IndexFunc(s, unicode.IsSpace)
