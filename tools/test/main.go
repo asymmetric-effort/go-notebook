@@ -24,8 +24,8 @@ var excludePrefixes = []string{
 	"github.com/asymmetric-effort/go-notebook/cmd/",
 	"github.com/asymmetric-effort/go-notebook/nb/engine/",
 	"github.com/asymmetric-effort/go-notebook/nb/crypto/",
-	// nb/build, nb/server, nb/lsp, nb/assets, and nb/identity contain
-	// process execution, network I/O, crypto, and external state dependencies.
+	// Packages with process execution, network I/O, WASM engine, crypto,
+	// and external state dependencies.
 	"github.com/asymmetric-effort/go-notebook/nb/build/",
 	"github.com/asymmetric-effort/go-notebook/nb/server/",
 	"github.com/asymmetric-effort/go-notebook/nb/lsp/",
