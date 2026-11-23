@@ -4,6 +4,7 @@ package kernel
 
 import (
 	"net"
+	"strings"
 	"testing"
 )
 
@@ -324,5 +325,30 @@ func TestHandleConnectionMultipleUpstreams(t *testing.T) {
 	data, ok := cr.GetCacheEntry("c")
 	if !ok || string(data) != "combined" {
 		t.Errorf("cached c = %q, ok=%v", data, ok)
+	}
+}
+
+func TestHandleConnectionReadError(t *testing.T) {
+	// Cover the non-EOF ReadMessage error path in handleConnection.
+	cr := NewCellRunner()
+
+	server, client := net.Pipe()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- cr.handleConnection(server, "broken")
+	}()
+
+	// Write a partial frame (only 2 of 4 length bytes) then close.
+	// This causes ReadMessage to return a non-EOF error.
+	client.Write([]byte{0x00, 0x00})
+	client.Close()
+
+	err := <-errCh
+	if err == nil {
+		t.Fatal("expected non-EOF read error")
+	}
+	if !strings.Contains(err.Error(), "read message") {
+		t.Errorf("error = %q, want 'read message'", err)
 	}
 }

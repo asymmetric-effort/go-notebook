@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -375,4 +376,108 @@ func TestDialSocketOverRealUnixSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	client.Close()
+}
+
+func TestSocketClientFetchUpstreamWriteError(t *testing.T) {
+	// Cover FetchUpstream "send fetch_upstream" error path.
+	dir := shortSockDir(t)
+	sockPath := filepath.Join(dir, "test.sock")
+
+	listener, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	go func() {
+		conn, _ := listener.Accept()
+		if conn != nil {
+			conn.Close() // Close immediately so client write fails.
+		}
+	}()
+
+	client, err := DialSocket(sockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Wait for server to close the connection.
+	ReadMessage(client.conn) // Will fail, but that's ok — just ensures server closed.
+
+	_, err = client.FetchUpstream("test")
+	client.Close()
+	if err == nil {
+		t.Fatal("expected error from FetchUpstream on closed conn")
+	}
+}
+
+func TestSocketClientFetchUpstreamReadError(t *testing.T) {
+	// Cover FetchUpstream "read upstream response" error path.
+	dir := shortSockDir(t)
+	sockPath := filepath.Join(dir, "test.sock")
+
+	listener, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	go func() {
+		conn, _ := listener.Accept()
+		if conn != nil {
+			// Read the fetch_upstream request but close without responding.
+			ReadMessage(conn)
+			conn.Close()
+		}
+	}()
+
+	client, err := DialSocket(sockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	_, err = client.FetchUpstream("test")
+	if err == nil {
+		t.Fatal("expected error from FetchUpstream when server closes")
+	}
+}
+
+func TestSocketClientFetchUpstreamUnexpectedType(t *testing.T) {
+	// Cover FetchUpstream "unexpected response type" error path.
+	dir := shortSockDir(t)
+	sockPath := filepath.Join(dir, "test.sock")
+
+	listener, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	go func() {
+		conn, _ := listener.Accept()
+		if conn != nil {
+			defer conn.Close()
+			ReadMessage(conn) // Read the request.
+			// Reply with an unexpected type.
+			WriteMessage(conn, ProtocolMessage{
+				Type: MsgDisplay,
+				Mime: "text/plain",
+				Data: []byte("wrong type"),
+			})
+		}
+	}()
+
+	client, err := DialSocket(sockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	_, err = client.FetchUpstream("test")
+	if err == nil {
+		t.Fatal("expected error for unexpected response type")
+	}
+	if !strings.Contains(err.Error(), "unexpected response type") {
+		t.Errorf("error = %q, want 'unexpected response type'", err)
+	}
 }
