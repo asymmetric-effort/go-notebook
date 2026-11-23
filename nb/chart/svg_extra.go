@@ -16,7 +16,7 @@ func RenderAreaSVG(c Area) string {
 	margin := 60
 
 	var buf strings.Builder
-	fmt.Fprintf(&buf, `<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">`, width, height, width, height)
+	buf.WriteString(svgOpenTag(width, height, "area", c.Title, nil, c.X, c.Series))
 	buf.WriteString("\n")
 
 	if c.Title != "" {
@@ -82,8 +82,9 @@ func RenderScatterSVG(c Scatter) string {
 	height := 400
 	margin := 60
 
+	scatterSeries := []Series{{Name: "points", Values: c.Y}}
 	var buf strings.Builder
-	fmt.Fprintf(&buf, `<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">`, width, height, width, height)
+	buf.WriteString(svgOpenTag(width, height, "scatter", c.Title, c.Groups, c.X, scatterSeries))
 	buf.WriteString("\n")
 
 	if c.Title != "" {
@@ -145,8 +146,9 @@ func RenderHistogramSVG(c Histogram) string {
 	height := 400
 	margin := 60
 
+	histSeries := []Series{{Name: "histogram", Values: c.Values}}
 	var buf strings.Builder
-	fmt.Fprintf(&buf, `<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">`, width, height, width, height)
+	buf.WriteString(svgOpenTag(width, height, "histogram", c.Title, nil, nil, histSeries))
 	buf.WriteString("\n")
 
 	if c.Title != "" {
@@ -227,7 +229,7 @@ func RenderHeatmapSVG(c Heatmap) string {
 	height := margin + cellH*len(c.RowLabels) + 20
 
 	var buf strings.Builder
-	fmt.Fprintf(&buf, `<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">`, width, height, width, height)
+	buf.WriteString(svgOpenTag(width, height, "heatmap", c.Title, c.ColLabels, nil, nil))
 	buf.WriteString("\n")
 
 	if c.Title != "" {
