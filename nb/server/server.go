@@ -25,6 +25,17 @@ import (
 //go:embed static
 var staticFiles embed.FS
 
+// cellState tracks per-cell execution state.
+type cellState struct {
+	Name     string `json:"name"`
+	Stdout   string `json:"stdout,omitempty"`
+	Stderr   string `json:"stderr,omitempty"`
+	ExitCode int    `json:"exit_code"`
+	Error    string `json:"error,omitempty"`
+	Stale    bool   `json:"stale"`
+	Failed   bool   `json:"failed"`
+}
+
 // Server is the gobook serve HTTP server.
 type Server struct {
 	addr         string
@@ -33,6 +44,7 @@ type Server struct {
 	kernel       *kernel.Kernel
 	mu           sync.RWMutex
 	lastParse    core.ParseResult
+	cellStates   map[string]*cellState // Per-cell execution state by name.
 }
 
 // New creates a new server for the given notebook.
@@ -42,6 +54,7 @@ func New(notebookPath, addr string) *Server {
 		notebookPath: notebookPath,
 		mux:          http.NewServeMux(),
 		kernel:       kernel.New(),
+		cellStates:   make(map[string]*cellState),
 	}
 	s.mux.HandleFunc("/api/status", s.handleStatus)
 	s.mux.HandleFunc("/api/cells", s.handleCells)
@@ -49,6 +62,8 @@ func New(notebookPath, addr string) *Server {
 	s.mux.HandleFunc("/api/blocks", s.handleBlocks)
 	s.mux.HandleFunc("/api/prose/update", s.handleProseUpdate)
 	s.mux.HandleFunc("/api/run", s.handleRun)
+	s.mux.HandleFunc("/api/run/all", s.handleRunAll)
+	s.mux.HandleFunc("/api/run/state", s.handleRunState)
 	s.mux.HandleFunc("/api/editor", s.handleEditor)
 
 	// Serve static files at /static/.
@@ -233,7 +248,46 @@ func (s *Server) handleCellsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Mark this cell and all downstream cells as stale.
+	s.markStale(req.Name)
+
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// markStale marks a cell and all cells that come after it as stale.
+func (s *Server) markStale(cellName string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if cellName == "" {
+		// Mark all cells stale.
+		for _, cs := range s.cellStates {
+			cs.Stale = true
+		}
+		return
+	}
+
+	// Parse to find ordering. Mark the named cell and everything after it stale.
+	src, err := os.ReadFile(s.notebookPath)
+	if err != nil {
+		return
+	}
+	result := core.Parse(string(src))
+	found := false
+	for _, b := range result.Blocks {
+		if b.Kind != core.BlockCell {
+			continue
+		}
+		attrs, _ := core.ParseInfoString(b.Info, b.StartPos.Line)
+		if attrs.Name == cellName {
+			found = true
+		}
+		if found && attrs.Name != "" {
+			if cs, ok := s.cellStates[attrs.Name]; ok {
+				cs.Stale = true
+			}
+		}
+	}
 }
 
 // rewriteCell replaces a cell identified by its opening fence line number with
@@ -478,20 +532,45 @@ func rewriteProse(src string, req proseUpdateRequest) (string, error) {
 	return strings.Join(out, "\n"), nil
 }
 
+// runRequest is the JSON body for POST /api/run.
+type runRequest struct {
+	Cell string `json:"cell,omitempty"` // Cell name to run (empty = run all).
+}
+
 // runResponse is the JSON response for /api/run.
 type runResponse struct {
+	Cell     string `json:"cell,omitempty"`
 	Stdout   string `json:"stdout"`
 	Stderr   string `json:"stderr"`
 	ExitCode int    `json:"exit_code"`
 	Error    string `json:"error,omitempty"`
+	Refused  string `json:"refused,omitempty"` // Name of failed upstream if refused.
 }
 
+// handleRun runs a single cell or all cells. Accepts optional JSON body
+// with {"cell":"name"}. Without a cell name, runs all cells as a batch
+// and returns a single combined response.
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
+	var req runRequest
+	if r.ContentLength > 0 {
+		json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	if req.Cell != "" {
+		s.runSingleCell(w, r, req.Cell)
+	} else {
+		s.runBatch(w, r)
+	}
+}
+
+// runBatch runs the entire notebook as a single go run invocation
+// and returns one combined response.
+func (s *Server) runBatch(w http.ResponseWriter, r *http.Request) {
 	src, err := os.ReadFile(s.notebookPath)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -530,7 +609,6 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Add replace directive.
 	moduleRoot := findModuleRoot()
 	goModPath := filepath.Join(pkgDir, "go.mod")
 	goModData, _ := os.ReadFile(goModPath)
@@ -554,7 +632,201 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		resp.Error = runErr.Error()
 	}
 
+	// Mark all cells as not-stale and not-failed on successful batch run.
+	if cellResult.ExitCode == 0 && runErr == nil {
+		s.mu.Lock()
+		for _, b := range result.Blocks {
+			if b.Kind == core.BlockCell {
+				attrs, _ := core.ParseInfoString(b.Info, b.StartPos.Line)
+				if attrs.Name != "" {
+					s.cellStates[attrs.Name] = &cellState{Name: attrs.Name, Stale: false, Failed: false}
+				}
+			}
+		}
+		s.mu.Unlock()
+	}
+
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleRunAll runs all cells sequentially, stopping on first error.
+func (s *Server) handleRunAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.runAllCells(w, r)
+}
+
+// handleRunState returns the current execution state of all cells.
+func (s *Server) handleRunState(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.mu.RLock()
+	states := make(map[string]*cellState, len(s.cellStates))
+	for k, v := range s.cellStates {
+		cp := *v
+		states[k] = &cp
+	}
+	s.mu.RUnlock()
+
+	writeJSON(w, http.StatusOK, states)
+}
+
+// runSingleCell executes one named cell, refusing if an upstream has failed.
+func (s *Server) runSingleCell(w http.ResponseWriter, r *http.Request, cellName string) {
+	// Check for failed upstream.
+	if refused := s.checkUpstreamFailure(cellName); refused != "" {
+		writeJSON(w, http.StatusConflict, runResponse{
+			Cell:    cellName,
+			Refused: refused,
+			Error:   fmt.Sprintf("refused: upstream cell %q has failed", refused),
+		})
+		return
+	}
+
+	resp := s.executeNotebook(r, cellName)
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// runAllCells executes all cells sequentially, stopping on first error.
+func (s *Server) runAllCells(w http.ResponseWriter, r *http.Request) {
+	src, err := os.ReadFile(s.notebookPath)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	result := core.Parse(string(src))
+
+	// Collect named cells in order.
+	var cellNames []string
+	for _, b := range result.Blocks {
+		if b.Kind == core.BlockCell {
+			attrs, _ := core.ParseInfoString(b.Info, b.StartPos.Line)
+			if attrs.Name != "" {
+				cellNames = append(cellNames, attrs.Name)
+			}
+		}
+	}
+
+	var results []runResponse
+	for _, name := range cellNames {
+		resp := s.executeNotebook(r, name)
+		results = append(results, resp)
+		if resp.ExitCode != 0 || resp.Error != "" {
+			// Stop on first error.
+			break
+		}
+	}
+
+	writeJSON(w, http.StatusOK, results)
+}
+
+// checkUpstreamFailure returns the name of the first failed upstream cell,
+// or empty string if all upstreams are ok.
+func (s *Server) checkUpstreamFailure(cellName string) string {
+	src, err := os.ReadFile(s.notebookPath)
+	if err != nil {
+		return ""
+	}
+	result := core.Parse(string(src))
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, b := range result.Blocks {
+		if b.Kind != core.BlockCell {
+			continue
+		}
+		attrs, _ := core.ParseInfoString(b.Info, b.StartPos.Line)
+		if attrs.Name == cellName {
+			break // Reached the target cell — no failed upstreams.
+		}
+		if attrs.Name != "" {
+			if cs, ok := s.cellStates[attrs.Name]; ok && cs.Failed {
+				return attrs.Name
+			}
+		}
+	}
+	return ""
+}
+
+// executeNotebook generates, compiles and runs the notebook, returning results
+// for the specified cell (or all cells if cellName is empty).
+func (s *Server) executeNotebook(r *http.Request, cellName string) runResponse {
+	src, err := os.ReadFile(s.notebookPath)
+	if err != nil {
+		return runResponse{Cell: cellName, Error: err.Error()}
+	}
+
+	result := core.Parse(string(src))
+	errs := core.Check(result)
+	if len(errs) > 0 {
+		msgs := make([]string, len(errs))
+		for i, e := range errs {
+			msgs[i] = e.Error()
+		}
+		return runResponse{Cell: cellName, Error: "check errors: " + strings.Join(msgs, "; ")}
+	}
+
+	gen, err := core.Generate(result, "main")
+	if err != nil {
+		return runResponse{Cell: cellName, Error: err.Error()}
+	}
+
+	tmpDir, err := os.MkdirTemp("", "gobook-serve-*")
+	if err != nil {
+		return runResponse{Cell: cellName, Error: err.Error()}
+	}
+	defer os.RemoveAll(tmpDir)
+
+	pkgDir := filepath.Join(tmpDir, "pkg")
+	if err := core.WritePackage(gen, pkgDir, s.notebookPath, "gobook-serve"); err != nil {
+		return runResponse{Cell: cellName, Error: err.Error()}
+	}
+
+	moduleRoot := findModuleRoot()
+	goModPath := filepath.Join(pkgDir, "go.mod")
+	goModData, _ := os.ReadFile(goModPath)
+	goModStr := string(goModData) + "\nreplace github.com/asymmetric-effort/go-notebook => " + moduleRoot + "\n"
+	os.WriteFile(goModPath, []byte(goModStr), 0o644)
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+
+	cellResult, runErr := s.kernel.RunCell(ctx, cellName, 5*time.Minute,
+		func(ctx context.Context) (kernel.CellResult, error) {
+			return kernel.GoRun(ctx, pkgDir)
+		})
+
+	resp := runResponse{
+		Cell:     cellName,
+		Stdout:   cellResult.Stdout,
+		Stderr:   cellResult.Stderr,
+		ExitCode: cellResult.ExitCode,
+	}
+	if runErr != nil {
+		resp.Error = runErr.Error()
+	}
+
+	// Update cell state.
+	s.mu.Lock()
+	s.cellStates[cellName] = &cellState{
+		Name:     cellName,
+		Stdout:   cellResult.Stdout,
+		Stderr:   cellResult.Stderr,
+		ExitCode: cellResult.ExitCode,
+		Error:    resp.Error,
+		Stale:    false,
+		Failed:   cellResult.ExitCode != 0 || runErr != nil,
+	}
+	s.mu.Unlock()
+
+	return resp
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

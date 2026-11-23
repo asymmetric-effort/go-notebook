@@ -23,6 +23,21 @@ class NotebookEditor {
             this.container.appendChild(p);
             return;
         }
+        // Run All button at the top.
+        const toolbar = document.createElement("div");
+        toolbar.className = "toolbar";
+        const runAllBtn = document.createElement("button");
+        runAllBtn.type = "button";
+        runAllBtn.textContent = "Run All";
+        runAllBtn.className = "run-all-btn";
+        const runAllStatus = document.createElement("span");
+        runAllStatus.className = "status";
+        runAllBtn.addEventListener("click", () => {
+            void this.runAll(runAllStatus);
+        });
+        toolbar.appendChild(runAllBtn);
+        toolbar.appendChild(runAllStatus);
+        this.container.appendChild(toolbar);
         for (const block of blocks) {
             switch (block.kind) {
                 case "prose":
@@ -38,6 +53,68 @@ class NotebookEditor {
                     this.container.appendChild(this.buildOutputBlock(block));
                     break;
             }
+        }
+        // Load initial cell states.
+        void this.refreshStaleMarkers();
+    }
+    async runAll(status) {
+        status.textContent = " Running all cells…";
+        status.className = "status";
+        try {
+            const resp = await fetch("/api/run/all", { method: "POST" });
+            if (!resp.ok) {
+                const err = await resp.json();
+                status.textContent = " Error: " + err.error;
+                status.className = "status error";
+                return;
+            }
+            status.textContent = " Done.";
+            status.className = "status ok";
+            void this.refreshStaleMarkers();
+        }
+        catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            status.textContent = " Network error: " + msg;
+            status.className = "status error";
+        }
+    }
+    async refreshStaleMarkers() {
+        try {
+            const resp = await fetch("/api/run/state");
+            if (!resp.ok)
+                return;
+            const states = await resp.json();
+            // Update stale/failed markers on cell sections.
+            const sections = this.container.querySelectorAll("section.cell-block");
+            for (const sec of sections) {
+                const name = sec.dataset["cellName"] ?? "";
+                const st = states[name];
+                sec.classList.remove("stale", "failed");
+                const marker = sec.querySelector(".cell-marker");
+                if (st) {
+                    if (st.stale) {
+                        sec.classList.add("stale");
+                        if (marker)
+                            marker.textContent = " (stale)";
+                    }
+                    else if (st.failed) {
+                        sec.classList.add("failed");
+                        if (marker)
+                            marker.textContent = " (failed)";
+                    }
+                    else {
+                        if (marker)
+                            marker.textContent = " (ok)";
+                    }
+                }
+                else {
+                    if (marker)
+                        marker.textContent = "";
+                }
+            }
+        }
+        catch {
+            // Ignore state fetch errors.
         }
     }
     // --- Prose editing ---
@@ -98,12 +175,20 @@ class NotebookEditor {
         const section = document.createElement("section");
         section.className = "block cell-block";
         section.dataset["line"] = String(block.line);
+        section.dataset["cellName"] = block.name ?? "";
         const heading = document.createElement("h2");
         heading.textContent = block.name ? "Cell: " + block.name : "Cell (line " + block.line + ")";
+        const marker = document.createElement("span");
+        marker.className = "cell-marker";
+        heading.appendChild(marker);
         section.appendChild(heading);
         const status = document.createElement("p");
         status.className = "status";
         section.appendChild(status);
+        // Output area for cell run results.
+        const outputArea = document.createElement("pre");
+        outputArea.className = "cell-output";
+        outputArea.style.display = "none";
         // body
         section.appendChild(this.labeledTextarea("Body", "body", block.body, true));
         // name
@@ -120,14 +205,73 @@ class NotebookEditor {
         section.appendChild(this.labeledSelect("Data", "data", ["", "embedded", "live"], ""));
         // timeout
         section.appendChild(this.labeledInput("Timeout (e.g. 30s, 2m)", "timeout", ""));
+        // Button row.
+        const btnRow = document.createElement("div");
+        btnRow.className = "btn-row";
         const saveBtn = document.createElement("button");
         saveBtn.type = "button";
         saveBtn.textContent = "Save Cell";
         saveBtn.addEventListener("click", () => {
             void this.saveCell(section, block.line, status, heading);
         });
-        section.appendChild(saveBtn);
+        btnRow.appendChild(saveBtn);
+        if (block.name) {
+            const runBtn = document.createElement("button");
+            runBtn.type = "button";
+            runBtn.textContent = "Run Cell";
+            runBtn.className = "run-btn";
+            runBtn.addEventListener("click", () => {
+                void this.runCell(block.name, status, outputArea);
+            });
+            btnRow.appendChild(runBtn);
+        }
+        section.appendChild(btnRow);
+        section.appendChild(outputArea);
         return section;
+    }
+    async runCell(name, status, outputArea) {
+        status.textContent = "Running…";
+        status.className = "status";
+        try {
+            const resp = await fetch("/api/run", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ cell: name }),
+            });
+            const result = await resp.json();
+            if (result.refused) {
+                status.textContent = "Refused: upstream \"" + result.refused + "\" has failed.";
+                status.className = "status error";
+                return;
+            }
+            if (result.error) {
+                status.textContent = "Error: " + result.error;
+                status.className = "status error";
+            }
+            else if (result.exit_code !== 0) {
+                status.textContent = "Exit code: " + result.exit_code;
+                status.className = "status error";
+            }
+            else {
+                status.textContent = "Done.";
+                status.className = "status ok";
+            }
+            // Show output.
+            const output = (result.stdout ?? "") + (result.stderr ?? "");
+            if (output) {
+                outputArea.textContent = output;
+                outputArea.style.display = "block";
+            }
+            else {
+                outputArea.style.display = "none";
+            }
+            void this.refreshStaleMarkers();
+        }
+        catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            status.textContent = "Network error: " + msg;
+            status.className = "status error";
+        }
     }
     async saveCell(section, line, status, heading) {
         status.textContent = "Saving…";

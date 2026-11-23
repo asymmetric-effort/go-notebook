@@ -56,6 +56,18 @@
     font-size: 0.9rem;
   }
   button:hover { background: #0b5ed7; }
+  .toolbar { margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; }
+  .run-all-btn { background: #198754; }
+  .run-all-btn:hover { background: #157347; }
+  .run-btn { background: #198754; }
+  .run-btn:hover { background: #157347; }
+  .btn-row { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+  .cell-output { background: #f1f3f5; padding: 0.5rem; border-radius: 4px; font-size: 0.85rem; overflow-x: auto; margin-top: 0.5rem; border-left: 3px solid #0d6efd; }
+  .cell-marker { font-size: 0.8rem; font-weight: normal; margin-left: 0.5rem; }
+  .cell-block.stale { border-left-color: #ffc107; }
+  .cell-block.stale .cell-marker { color: #856404; }
+  .cell-block.failed { border-left-color: #dc3545; }
+  .cell-block.failed .cell-marker { color: #dc3545; }
   .status { font-size: 0.85rem; min-height: 1.2em; margin: 0 0 0.75rem; }
   .status.ok { color: #198754; }
   .status.error { color: #dc3545; }
