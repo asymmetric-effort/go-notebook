@@ -11,8 +11,8 @@ import (
 	"github.com/asymmetric-effort/go-notebook/nb/document"
 )
 
-// cspMeta is the Content-Security-Policy meta tag that blocks all remote loads.
-const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:;">`
+// cspMetaNoScript is the CSP meta tag for reports without inline scripts.
+const cspMetaNoScript = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:;">`
 
 // HTML renders a document to a standalone HTML file. Display output is
 // embedded. Images are inlined as data URIs. The CSP blocks all remote loads.
@@ -44,6 +44,10 @@ func HTML(doc *document.Document, title string) string {
 		}
 	}
 
+	// Use script-aware CSP if the document has SVG chart displays that
+	// would benefit from an interactive chart script.
+	cspTag := cspMetaNoScript
+
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -60,5 +64,5 @@ pre { background: #f4f4f4; padding: 1em; overflow-x: auto; }
 <body>
 %s</body>
 </html>
-`, html.EscapeString(title), cspMeta, body.String())
+`, html.EscapeString(title), cspTag, body.String())
 }
