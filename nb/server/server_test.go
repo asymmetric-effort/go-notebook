@@ -1024,3 +1024,135 @@ func TestSanitizeOutputEmpty(t *testing.T) {
 		t.Errorf("empty input should return empty: %q", got)
 	}
 }
+
+func TestSecretsSetAndGet(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+
+	// Set a secret.
+	body, _ := json.Marshal(secretRequest{Name: "api_key", Value: "secret123"})
+	req := httptest.NewRequest("PUT", "/api/secrets", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	// Verify via GetSecret.
+	val, ok := s.GetSecret("api_key")
+	if !ok || val != "secret123" {
+		t.Errorf("GetSecret = %q, %v", val, ok)
+	}
+
+	// GET should list names but not values.
+	getReq := httptest.NewRequest("GET", "/api/secrets", nil)
+	getW := httptest.NewRecorder()
+	s.Handler().ServeHTTP(getW, getReq)
+
+	if getW.Code != http.StatusOK {
+		t.Fatalf("GET status = %d", getW.Code)
+	}
+	respBody := getW.Body.String()
+	if !strings.Contains(respBody, "api_key") {
+		t.Error("GET should list secret name")
+	}
+	if strings.Contains(respBody, "secret123") {
+		t.Error("GET must NEVER return secret values")
+	}
+}
+
+func TestSecretsDelete(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+
+	// Set a secret.
+	s.mu.Lock()
+	s.secrets["key"] = "value"
+	s.mu.Unlock()
+
+	// Delete all secrets.
+	req := httptest.NewRequest("DELETE", "/api/secrets", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("DELETE status = %d", w.Code)
+	}
+
+	// Verify cleared.
+	_, ok := s.GetSecret("key")
+	if ok {
+		t.Error("secret should be cleared after DELETE")
+	}
+}
+
+func TestSecretsEmptyName(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	body, _ := json.Marshal(secretRequest{Name: "", Value: "val"})
+	req := httptest.NewRequest("PUT", "/api/secrets", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestSecretsMethodNotAllowed(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest("PATCH", "/api/secrets", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestSecretNeverInNotebook(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+
+	// Set a secret.
+	s.mu.Lock()
+	s.secrets["password"] = "super_secret_value"
+	s.mu.Unlock()
+
+	// Verify the secret value does not appear in the notebook file.
+	data, _ := os.ReadFile(notebook)
+	if strings.Contains(string(data), "super_secret_value") {
+		t.Error("secret value must NEVER appear in the notebook file")
+	}
+
+	// Verify the secret value does not appear in cell states.
+	s.mu.RLock()
+	for _, cs := range s.cellStates {
+		if strings.Contains(cs.Stdout, "super_secret_value") {
+			t.Error("secret value must not appear in cell stdout")
+		}
+		if strings.Contains(cs.Stderr, "super_secret_value") {
+			t.Error("secret value must not appear in cell stderr")
+		}
+	}
+	s.mu.RUnlock()
+}

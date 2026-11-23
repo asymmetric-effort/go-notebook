@@ -45,6 +45,7 @@ type Server struct {
 	mu           sync.RWMutex
 	lastParse    core.ParseResult
 	cellStates   map[string]*cellState // Per-cell execution state by name.
+	secrets      map[string]string     // In-memory secrets, never persisted.
 }
 
 // New creates a new server for the given notebook.
@@ -55,8 +56,10 @@ func New(notebookPath, addr string) *Server {
 		mux:          http.NewServeMux(),
 		kernel:       kernel.New(),
 		cellStates:   make(map[string]*cellState),
+		secrets:      make(map[string]string),
 	}
 	s.mux.HandleFunc("/api/status", s.handleStatus)
+	s.mux.HandleFunc("/api/secrets", s.handleSecrets)
 	s.mux.HandleFunc("/api/cells", s.handleCells)
 	s.mux.HandleFunc("/api/cells/update", s.handleCellsUpdate)
 	s.mux.HandleFunc("/api/blocks", s.handleBlocks)
@@ -960,6 +963,62 @@ func parseCompileError(line string) *cellError {
 		Line:    lineNum,
 		Kind:    "compile",
 	}
+}
+
+// secretRequest is the JSON body for PUT /api/secrets.
+type secretRequest struct {
+	Name  string `json:"name"`  // Secret name (e.g., "api_key").
+	Value string `json:"value"` // Secret value (from masked input).
+}
+
+// handleSecrets manages in-memory secrets.
+// PUT: store a secret value (from the browser masked prompt).
+// GET: list secret names that have been set (never the values).
+// DELETE: clear all secrets.
+func (s *Server) handleSecrets(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPut:
+		var req secretRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
+			return
+		}
+		if req.Name == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "secret name is required"})
+			return
+		}
+		s.mu.Lock()
+		s.secrets[req.Name] = req.Value
+		s.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+
+	case http.MethodGet:
+		s.mu.RLock()
+		names := make([]string, 0, len(s.secrets))
+		for name := range s.secrets {
+			names = append(names, name)
+		}
+		s.mu.RUnlock()
+		writeJSON(w, http.StatusOK, map[string]interface{}{"secrets": names})
+
+	case http.MethodDelete:
+		s.mu.Lock()
+		s.secrets = make(map[string]string)
+		s.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// GetSecret returns a secret value from the in-memory store.
+// This is called by the kernel when a cell uses ctx.Secret().
+func (s *Server) GetSecret(name string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	val, ok := s.secrets[name]
+	return val, ok
 }
 
 // sanitizeOutput strips raw SVG content from cell output to prevent

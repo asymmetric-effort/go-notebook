@@ -79,6 +79,9 @@ class NotebookEditor {
     toolbar.appendChild(runAllStatus);
     this.container.appendChild(toolbar);
 
+    // Secret prompt section.
+    this.container.appendChild(this.buildSecretPrompt());
+
     for (const block of blocks) {
       switch (block.kind) {
         case "prose":
@@ -150,6 +153,103 @@ class NotebookEditor {
       }
     } catch {
       // Ignore state fetch errors.
+    }
+  }
+
+  // --- Secret prompt ---
+
+  private buildSecretPrompt(): HTMLElement {
+    const section = document.createElement("section");
+    section.className = "block secret-block";
+    section.style.display = "none"; // Hidden by default, shown when needed.
+    section.id = "secret-prompt";
+
+    const heading = document.createElement("h3");
+    heading.textContent = "Secret";
+    section.appendChild(heading);
+
+    const status = document.createElement("p");
+    status.className = "status";
+    section.appendChild(status);
+
+    const nameField = document.createElement("div");
+    nameField.className = "field";
+    const nameLabel = document.createElement("label");
+    nameLabel.textContent = "Secret Name";
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.name = "secret-name";
+    nameInput.placeholder = "e.g., api_key";
+    nameField.appendChild(nameLabel);
+    nameField.appendChild(nameInput);
+    section.appendChild(nameField);
+
+    const valueField = document.createElement("div");
+    valueField.className = "field";
+    const valueLabel = document.createElement("label");
+    valueLabel.textContent = "Secret Value (masked)";
+    const valueInput = document.createElement("input");
+    valueInput.type = "password";
+    valueInput.name = "secret-value";
+    valueInput.autocomplete = "off";
+    valueField.appendChild(valueLabel);
+    valueField.appendChild(valueInput);
+    section.appendChild(valueField);
+
+    const submitBtn = document.createElement("button");
+    submitBtn.type = "button";
+    submitBtn.textContent = "Set Secret";
+    submitBtn.addEventListener("click", () => {
+      void this.submitSecret(nameInput, valueInput, status);
+    });
+    section.appendChild(submitBtn);
+
+    // Always visible toggle.
+    section.style.display = "block";
+
+    return section;
+  }
+
+  private async submitSecret(
+    nameInput: HTMLInputElement,
+    valueInput: HTMLInputElement,
+    status: HTMLElement,
+  ): Promise<void> {
+    const name = nameInput.value.trim();
+    const value = valueInput.value;
+
+    if (!name) {
+      status.textContent = "Secret name is required.";
+      status.className = "status error";
+      return;
+    }
+
+    status.textContent = "Setting…";
+    status.className = "status";
+
+    try {
+      const resp = await fetch("/api/secrets", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, value }),
+      });
+
+      if (!resp.ok) {
+        interface ErrResp { error: string }
+        const err: ErrResp = await resp.json() as ErrResp;
+        status.textContent = "Error: " + err.error;
+        status.className = "status error";
+        return;
+      }
+
+      status.textContent = "Secret \"" + name + "\" set (memory only).";
+      status.className = "status ok";
+      // Clear the value input for security.
+      valueInput.value = "";
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      status.textContent = "Network error: " + msg;
+      status.className = "status error";
     }
   }
 
