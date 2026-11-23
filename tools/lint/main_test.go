@@ -53,13 +53,13 @@ func TestXmlLintNoFiles(t *testing.T) {
 	}
 }
 
-func TestEsLintNoFiles(t *testing.T) {
+func TestEsLint(t *testing.T) {
 	if err := esLint(); err != nil {
 		t.Fatalf("esLint() = %v, want nil", err)
 	}
 }
 
-func TestTscCheckNoFiles(t *testing.T) {
+func TestTscCheck(t *testing.T) {
 	if err := tscCheck(); err != nil {
 		t.Fatalf("tscCheck() = %v, want nil", err)
 	}
@@ -75,9 +75,10 @@ func TestModuleRoot(t *testing.T) {
 	}
 }
 
-func TestHasTypeScriptFilesNone(t *testing.T) {
-	if hasTypeScriptFiles() {
-		t.Error("hasTypeScriptFiles() = true, want false")
+func TestHasTypeScriptFiles(t *testing.T) {
+	// The repo has TypeScript files (nb/server/static/editor.ts).
+	if !hasTypeScriptFiles() {
+		t.Error("hasTypeScriptFiles() = false, want true")
 	}
 }
 

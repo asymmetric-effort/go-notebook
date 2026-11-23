@@ -255,6 +255,108 @@ func TestParseInfoStringNestedParens(t *testing.T) {
 	}
 }
 
+func TestFormatInfoStringEmpty(t *testing.T) {
+	got := FormatInfoString(CellAttrs{})
+	if got != "go:notebook" {
+		t.Errorf("FormatInfoString({}) = %q, want %q", got, "go:notebook")
+	}
+}
+
+func TestFormatInfoStringName(t *testing.T) {
+	got := FormatInfoString(CellAttrs{Name: "load"})
+	if got != "go:notebook name=load" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestFormatInfoStringFull(t *testing.T) {
+	attrs := CellAttrs{
+		Name:     "compute",
+		Exported: "result float64",
+		Reads:    []ReadFile{{Name: "data.csv", Mode: FileModeEmbed}, {Name: "cfg.json", Mode: FileModeRuntime}},
+		Writes:   []string{"out.png"},
+		Secrets:  []string{"api_key"},
+		Data:     DataEmbedded,
+		Timeout:  30 * time.Second,
+	}
+	got := FormatInfoString(attrs)
+	want := "go:notebook name=compute exported(result float64) reads(data.csv:embed, cfg.json:runtime) writes(out.png) secrets(api_key) data=embedded timeout=30s"
+	if got != want {
+		t.Errorf("FormatInfoString() = %q\nwant %q", got, want)
+	}
+}
+
+func TestFormatInfoStringRoundTrip(t *testing.T) {
+	cases := []string{
+		"go:notebook",
+		"go:notebook name=load",
+		"go:notebook name=load exported(rows []Row, total float64)",
+		"go:notebook reads(sales.csv:embed, regions.csv:runtime)",
+		"go:notebook writes(chart.png, report.html)",
+		"go:notebook secrets(db, api_key)",
+		"go:notebook data=embedded",
+		"go:notebook data=live",
+		"go:notebook timeout=2m0s",
+		"go:notebook name=load exported(rows []Row) reads(sales.csv:embed) data=embedded timeout=30s",
+	}
+	for _, tc := range cases {
+		attrs, err := ParseInfoString(tc, 1)
+		if err != nil {
+			t.Errorf("ParseInfoString(%q) error: %v", tc, err)
+			continue
+		}
+		got := FormatInfoString(attrs)
+		// Re-parse the formatted output and compare attrs.
+		attrs2, err := ParseInfoString(got, 1)
+		if err != nil {
+			t.Errorf("ParseInfoString(FormatInfoString(%q)) error: %v", tc, err)
+			continue
+		}
+		got2 := FormatInfoString(attrs2)
+		if got != got2 {
+			t.Errorf("round-trip not idempotent for %q:\n  first:  %q\n  second: %q", tc, got, got2)
+		}
+	}
+}
+
+func TestFormatThenParseRoundTrip(t *testing.T) {
+	attrs := CellAttrs{
+		Name:     "myCell",
+		Exported: "x int, y string",
+		Reads:    []ReadFile{{Name: "input.csv", Mode: FileModeRuntime}},
+		Writes:   []string{"output.json"},
+		Secrets:  []string{"token"},
+		Data:     DataLive,
+		Timeout:  5 * time.Minute,
+	}
+	formatted := FormatInfoString(attrs)
+	parsed, err := ParseInfoString(formatted, 1)
+	if err != nil {
+		t.Fatalf("ParseInfoString(%q) error: %v", formatted, err)
+	}
+	if parsed.Name != attrs.Name {
+		t.Errorf("Name: got %q want %q", parsed.Name, attrs.Name)
+	}
+	if parsed.Exported != attrs.Exported {
+		t.Errorf("Exported: got %q want %q", parsed.Exported, attrs.Exported)
+	}
+	if len(parsed.Reads) != 1 || parsed.Reads[0].Name != "input.csv" || parsed.Reads[0].Mode != FileModeRuntime {
+		t.Errorf("Reads: got %+v want %+v", parsed.Reads, attrs.Reads)
+	}
+	if len(parsed.Writes) != 1 || parsed.Writes[0] != "output.json" {
+		t.Errorf("Writes: got %v want %v", parsed.Writes, attrs.Writes)
+	}
+	if len(parsed.Secrets) != 1 || parsed.Secrets[0] != "token" {
+		t.Errorf("Secrets: got %v want %v", parsed.Secrets, attrs.Secrets)
+	}
+	if parsed.Data != DataLive {
+		t.Errorf("Data: got %v want %v", parsed.Data, attrs.Data)
+	}
+	if parsed.Timeout != 5*time.Minute {
+		t.Errorf("Timeout: got %v want %v", parsed.Timeout, attrs.Timeout)
+	}
+}
+
 func containsSubstring(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsStr(s, substr))
 }
