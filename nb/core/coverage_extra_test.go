@@ -196,3 +196,15 @@ func TestCountCells(t *testing.T) {
 		t.Errorf("got %d cells, want 2", count)
 	}
 }
+
+func TestGenerateResultSourceMapInit(t *testing.T) {
+	src := "```go:notebook name=test exported(val int)\nval = 1\n```\n"
+	result := Parse(src)
+	gen, err := Generate(result, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gen.SourceMap == nil {
+		t.Error("SourceMap should be initialized")
+	}
+}

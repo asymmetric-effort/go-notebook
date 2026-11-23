@@ -256,3 +256,21 @@ func TestContextChartUnknownType(t *testing.T) {
 
 // Verify fs.File interface satisfaction.
 var _ fs.FS = fstest.MapFS{}
+
+func TestContextSetSecretAndRetrieve(t *testing.T) {
+	ctx := NewContext(nil)
+	ctx.SetSecret("key", "value")
+	if got := ctx.Secret("key"); got != "value" {
+		t.Errorf("Secret = %q, want value", got)
+	}
+}
+
+func TestContextDisplayMultiple(t *testing.T) {
+	ctx := NewContext(nil)
+	ctx.Display("text/markdown", "one")
+	ctx.Display("text/markdown", "two")
+	displays := ctx.Displays()
+	if len(displays) != 2 {
+		t.Errorf("got %d displays, want 2", len(displays))
+	}
+}

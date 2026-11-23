@@ -130,3 +130,38 @@ func TestIncrementalEqualsFullRegen(t *testing.T) {
 		t.Error("cell count should be the same")
 	}
 }
+
+func TestDiffCellsUnnamedNew(t *testing.T) {
+	old := Parse("")
+	new := Parse("```go:notebook\nnew body\n```\n")
+	changes := DiffCells(old, new)
+	if len(changes) != 1 || !changes[0].IsNew {
+		t.Errorf("expected 1 new unnamed cell, got %v", changes)
+	}
+}
+
+func TestDiffCellsUnnamedDeleted(t *testing.T) {
+	old := Parse("```go:notebook\nold body\n```\n")
+	new := Parse("")
+	changes := DiffCells(old, new)
+	if len(changes) != 1 || !changes[0].IsDelete {
+		t.Errorf("expected 1 deleted unnamed cell, got %v", changes)
+	}
+}
+
+func TestExtractDefsEmpty(t *testing.T) {
+	result := Parse("```go:notebook name=a exported(val int)\nval = 1\n```\n")
+	defs := extractDefs(result)
+	if defs != "" {
+		t.Errorf("expected empty defs, got %q", defs)
+	}
+}
+
+func TestExtractDefsMultiple(t *testing.T) {
+	src := "```go:defs\nconst a = 1\n```\n\n```go:defs\nconst b = 2\n```\n"
+	result := Parse(src)
+	defs := extractDefs(result)
+	if defs == "" {
+		t.Error("expected non-empty defs")
+	}
+}
