@@ -918,3 +918,109 @@ func TestParseCompileError(t *testing.T) {
 		}
 	}
 }
+
+func TestCSPHeaderPresent(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+
+	// Test CSP on API endpoint.
+	req := httptest.NewRequest("GET", "/api/status", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	csp := w.Header().Get("Content-Security-Policy")
+	if csp == "" {
+		t.Fatal("missing Content-Security-Policy header")
+	}
+	if !strings.Contains(csp, "default-src 'self'") {
+		t.Errorf("CSP missing default-src 'self': %s", csp)
+	}
+	if !strings.Contains(csp, "object-src 'none'") {
+		t.Errorf("CSP missing object-src 'none': %s", csp)
+	}
+	if !strings.Contains(csp, "frame-src 'none'") {
+		t.Errorf("CSP missing frame-src 'none': %s", csp)
+	}
+}
+
+func TestCSPHeaderOnEditor(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+
+	req := httptest.NewRequest("GET", "/api/editor", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	csp := w.Header().Get("Content-Security-Policy")
+	if csp == "" {
+		t.Fatal("editor page missing CSP header")
+	}
+	if !strings.Contains(csp, "script-src 'self'") {
+		t.Error("CSP should restrict scripts to 'self'")
+	}
+}
+
+func TestXContentTypeOptionsHeader(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest("GET", "/api/status", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Error("missing X-Content-Type-Options: nosniff")
+	}
+}
+
+func TestSanitizeOutputNoSVG(t *testing.T) {
+	output := "hello world\n42\n"
+	got := sanitizeOutput(output)
+	// No SVG — output passes through unchanged.
+	if got != output {
+		t.Errorf("non-SVG output should pass through: got %q, want %q", got, output)
+	}
+}
+
+func TestSanitizeOutputStripsSVG(t *testing.T) {
+	output := "result: 42\n<svg xmlns=\"http://www.w3.org/2000/svg\">\n<script>alert('xss')</script>\n</svg>\nmore output\n"
+	got := sanitizeOutput(output)
+	if strings.Contains(got, "<svg") {
+		t.Error("SVG should be stripped")
+	}
+	if strings.Contains(got, "alert") {
+		t.Error("script inside SVG should be stripped")
+	}
+	if !strings.Contains(got, "result: 42") {
+		t.Error("non-SVG output before SVG should be preserved")
+	}
+	if !strings.Contains(got, "more output") {
+		t.Error("output after SVG should be preserved")
+	}
+	if !strings.Contains(got, "[SVG content stripped") {
+		t.Error("should contain replacement message")
+	}
+}
+
+func TestSanitizeOutputStripsSVGCaseInsensitive(t *testing.T) {
+	output := "<SVG><script>evil</script></SVG>\n"
+	got := sanitizeOutput(output)
+	if strings.Contains(strings.ToLower(got), "<svg") {
+		t.Error("uppercase SVG should also be stripped")
+	}
+}
+
+func TestSanitizeOutputEmpty(t *testing.T) {
+	got := sanitizeOutput("")
+	if got != "" {
+		t.Errorf("empty input should return empty: %q", got)
+	}
+}
