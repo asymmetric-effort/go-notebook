@@ -9,8 +9,20 @@ import (
 	"testing"
 )
 
+// shortSockDir creates a short temp directory suitable for Unix socket paths.
+// macOS has a ~104-byte limit on socket paths; t.TempDir() can exceed this.
+func shortSockDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "sock-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
+}
+
 func TestDialSocketAndClose(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortSockDir(t)
 	sockPath := filepath.Join(dir, "test.sock")
 
 	listener, err := net.Listen("unix", sockPath)
@@ -44,7 +56,7 @@ func TestDialSocketNotExist(t *testing.T) {
 }
 
 func TestSocketClientFetchUpstream(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortSockDir(t)
 	sockPath := filepath.Join(dir, "test.sock")
 
 	listener, err := net.Listen("unix", sockPath)
@@ -90,7 +102,7 @@ func TestSocketClientFetchUpstream(t *testing.T) {
 }
 
 func TestSocketClientFetchUpstreamError(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortSockDir(t)
 	sockPath := filepath.Join(dir, "test.sock")
 
 	listener, err := net.Listen("unix", sockPath)
@@ -130,7 +142,7 @@ func TestSocketClientFetchUpstreamError(t *testing.T) {
 }
 
 func TestSocketClientSendDisplay(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortSockDir(t)
 	sockPath := filepath.Join(dir, "test.sock")
 
 	listener, err := net.Listen("unix", sockPath)
@@ -174,7 +186,7 @@ func TestSocketClientSendDisplay(t *testing.T) {
 }
 
 func TestSocketClientSendResult(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortSockDir(t)
 	sockPath := filepath.Join(dir, "test.sock")
 
 	listener, err := net.Listen("unix", sockPath)
@@ -218,7 +230,7 @@ func TestSocketClientSendResult(t *testing.T) {
 }
 
 func TestSocketClientSendError(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortSockDir(t)
 	sockPath := filepath.Join(dir, "test.sock")
 
 	listener, err := net.Listen("unix", sockPath)
@@ -260,7 +272,7 @@ func TestSocketClientSendError(t *testing.T) {
 
 func TestSocketClientFullProtocol(t *testing.T) {
 	// End-to-end: client fetches upstream, sends display, sends result.
-	dir := t.TempDir()
+	dir := shortSockDir(t)
 	sockPath := filepath.Join(dir, "test.sock")
 
 	listener, err := net.Listen("unix", sockPath)
@@ -337,7 +349,7 @@ func TestSocketClientFullProtocol(t *testing.T) {
 
 func TestDialSocketOverRealUnixSocket(t *testing.T) {
 	// Test the full Dial path with a real temporary socket file.
-	dir := t.TempDir()
+	dir := shortSockDir(t)
 	sockPath := filepath.Join(dir, "real.sock")
 
 	listener, err := net.Listen("unix", sockPath)
