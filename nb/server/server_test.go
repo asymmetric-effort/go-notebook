@@ -807,3 +807,114 @@ func TestRunRefusal(t *testing.T) {
 		t.Errorf("refused = %q, want 'a'", resp.Refused)
 	}
 }
+
+func TestParseRunErrorsTimeout(t *testing.T) {
+	errs := parseRunErrors("", "cell timed out: context deadline exceeded", "test")
+	if len(errs) != 1 {
+		t.Fatalf("got %d errors, want 1", len(errs))
+	}
+	if errs[0].Kind != "timeout" {
+		t.Errorf("kind = %q, want timeout", errs[0].Kind)
+	}
+	if errs[0].Cell != "test" {
+		t.Errorf("cell = %q, want test", errs[0].Cell)
+	}
+}
+
+func TestParseRunErrorsCompile(t *testing.T) {
+	stderr := "notebook.md:5:3: undefined: foo\n"
+	errs := parseRunErrors(stderr, "", "test")
+	if len(errs) != 1 {
+		t.Fatalf("got %d errors, want 1", len(errs))
+	}
+	if errs[0].Kind != "compile" {
+		t.Errorf("kind = %q, want compile", errs[0].Kind)
+	}
+	if errs[0].Line != 5 {
+		t.Errorf("line = %d, want 5", errs[0].Line)
+	}
+	if !strings.Contains(errs[0].Message, "undefined") {
+		t.Errorf("message = %q, want 'undefined'", errs[0].Message)
+	}
+}
+
+func TestParseRunErrorsPanic(t *testing.T) {
+	stderr := "panic: runtime error: index out of range\n"
+	errs := parseRunErrors(stderr, "", "test")
+	if len(errs) != 1 {
+		t.Fatalf("got %d errors, want 1", len(errs))
+	}
+	if errs[0].Kind != "panic" {
+		t.Errorf("kind = %q, want panic", errs[0].Kind)
+	}
+	if !strings.Contains(errs[0].Message, "index out of range") {
+		t.Errorf("message = %q", errs[0].Message)
+	}
+}
+
+func TestParseRunErrorsStackTraceFiltered(t *testing.T) {
+	stderr := "notebook.md:10:1: type mismatch\ngoroutine 1 [running]:\n\truntime/debug.Stack()\n\t\t/usr/local/go/src/runtime/debug/stack.go:24\n"
+	errs := parseRunErrors(stderr, "", "test")
+	// Should only have the compile error, not the stack trace.
+	if len(errs) != 1 {
+		t.Fatalf("got %d errors, want 1", len(errs))
+	}
+	if errs[0].Kind != "compile" {
+		t.Errorf("kind = %q, want compile", errs[0].Kind)
+	}
+	for _, e := range errs {
+		if strings.Contains(e.Message, "goroutine") || strings.Contains(e.Message, "runtime") {
+			t.Error("stack trace should be filtered out")
+		}
+	}
+}
+
+func TestParseRunErrorsGenericFallback(t *testing.T) {
+	errs := parseRunErrors("", "something went wrong", "test")
+	if len(errs) != 1 {
+		t.Fatalf("got %d errors, want 1", len(errs))
+	}
+	if errs[0].Kind != "runtime" {
+		t.Errorf("kind = %q, want runtime", errs[0].Kind)
+	}
+}
+
+func TestParseRunErrorsEmpty(t *testing.T) {
+	errs := parseRunErrors("", "", "test")
+	if len(errs) != 0 {
+		t.Errorf("got %d errors, want 0", len(errs))
+	}
+}
+
+func TestParseCompileError(t *testing.T) {
+	tests := []struct {
+		line    string
+		wantNil bool
+		file    string
+		lineNum int
+	}{
+		{"notebook.md:5:3: undefined: foo", false, "notebook.md", 5},
+		{"./main.go:10:1: syntax error", false, "./main.go", 10},
+		{"not an error", true, "", 0},
+		{"", true, "", 0},
+	}
+	for _, tt := range tests {
+		got := parseCompileError(tt.line)
+		if tt.wantNil {
+			if got != nil {
+				t.Errorf("parseCompileError(%q) = %+v, want nil", tt.line, got)
+			}
+			continue
+		}
+		if got == nil {
+			t.Errorf("parseCompileError(%q) = nil", tt.line)
+			continue
+		}
+		if got.File != tt.file {
+			t.Errorf("file = %q, want %q", got.File, tt.file)
+		}
+		if got.Line != tt.lineNum {
+			t.Errorf("line = %d, want %d", got.Line, tt.lineNum)
+		}
+	}
+}

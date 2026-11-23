@@ -244,26 +244,38 @@ class NotebookEditor {
                 status.className = "status error";
                 return;
             }
-            if (result.error) {
+            // Display parsed errors if present.
+            const errors = result.errors ?? [];
+            if (errors.length > 0) {
+                this.displayErrors(outputArea, errors);
+                status.textContent = errors.length + " error(s)";
+                status.className = "status error";
+            }
+            else if (result.error) {
                 status.textContent = "Error: " + result.error;
                 status.className = "status error";
+                outputArea.textContent = result.error;
+                outputArea.style.display = "block";
             }
             else if (result.exit_code !== 0) {
                 status.textContent = "Exit code: " + result.exit_code;
                 status.className = "status error";
+                outputArea.textContent = result.stderr || result.stdout;
+                outputArea.style.display = "block";
             }
             else {
                 status.textContent = "Done.";
                 status.className = "status ok";
-            }
-            // Show output.
-            const output = (result.stdout ?? "") + (result.stderr ?? "");
-            if (output) {
-                outputArea.textContent = output;
-                outputArea.style.display = "block";
-            }
-            else {
-                outputArea.style.display = "none";
+                // Show stdout output.
+                const output = result.stdout ?? "";
+                if (output) {
+                    outputArea.textContent = output;
+                    outputArea.className = "cell-output";
+                    outputArea.style.display = "block";
+                }
+                else {
+                    outputArea.style.display = "none";
+                }
             }
             void this.refreshStaleMarkers();
         }
@@ -271,6 +283,27 @@ class NotebookEditor {
             const msg = e instanceof Error ? e.message : String(e);
             status.textContent = "Network error: " + msg;
             status.className = "status error";
+        }
+    }
+    displayErrors(outputArea, errors) {
+        outputArea.innerHTML = "";
+        outputArea.className = "cell-output cell-errors";
+        outputArea.style.display = "block";
+        for (const err of errors) {
+            const div = document.createElement("div");
+            div.className = "error-entry error-" + (err.kind || "runtime");
+            let prefix = "";
+            if (err.kind === "compile" && err.line > 0) {
+                prefix = "Line " + err.line + ": ";
+            }
+            else if (err.kind === "timeout") {
+                prefix = "⏱ ";
+            }
+            else if (err.kind === "panic") {
+                prefix = "⚠ ";
+            }
+            div.textContent = prefix + err.message;
+            outputArea.appendChild(div);
         }
     }
     async saveCell(section, line, status, heading) {
