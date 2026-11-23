@@ -300,3 +300,57 @@ func TestMessageConstants(t *testing.T) {
 		t.Error("message type constants are not all distinct")
 	}
 }
+
+func TestWriteMessageClosedConn(t *testing.T) {
+	// Cover the "write length" error path — connection closed before write.
+	server, client := net.Pipe()
+	server.Close()
+	client.Close()
+
+	err := WriteMessage(server, ProtocolMessage{Type: MsgResult})
+	if err == nil {
+		t.Fatal("expected error writing to closed connection")
+	}
+}
+
+func TestWriteMessagePayloadError(t *testing.T) {
+	// Cover the "write payload" error path — connection closed after length.
+	server, client := net.Pipe()
+
+	// Read and discard the 4-byte length, then close.
+	go func() {
+		buf := make([]byte, 4)
+		client.Read(buf)
+		client.Close()
+	}()
+
+	err := WriteMessage(server, ProtocolMessage{
+		Type: MsgResult,
+		Data: make([]byte, 1024), // Enough data to trigger a write error.
+	})
+	server.Close()
+	if err == nil {
+		t.Fatal("expected error writing payload to closed connection")
+	}
+}
+
+func TestReadMessageNonEOFLengthError(t *testing.T) {
+	// Cover the non-EOF read-length error path — partial length bytes.
+	server, client := net.Pipe()
+
+	go func() {
+		// Write only 2 of the 4 length bytes, then close.
+		server.Write([]byte{0x00, 0x00})
+		server.Close()
+	}()
+
+	_, err := ReadMessage(client)
+	client.Close()
+	if err == nil {
+		t.Fatal("expected error for partial length")
+	}
+	// Should not be io.EOF — it should be an unexpected EOF or read error.
+	if err == io.EOF {
+		t.Error("expected non-EOF error for partial length")
+	}
+}

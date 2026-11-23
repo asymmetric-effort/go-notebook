@@ -164,6 +164,55 @@ func TestGoRunCellBadDir(t *testing.T) {
 	}
 }
 
+// TestGoRunContextCancel verifies the ctx.Err() path in GoRun.
+func TestGoRunContextCancel(t *testing.T) {
+	dir := t.TempDir()
+	pkgDir := filepath.Join(dir, "sleeppkg")
+	os.MkdirAll(pkgDir, 0o755)
+	os.WriteFile(filepath.Join(pkgDir, "go.mod"), []byte("module sleeppkg\ngo 1.27.4\n"), 0o644)
+	os.WriteFile(filepath.Join(pkgDir, "main.go"), []byte("package main\nfunc main() {}\n"), 0o644)
+
+	// Cancel context immediately — go run will fail because it's already cancelled.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := GoRun(ctx, pkgDir)
+	if err == nil {
+		t.Fatal("expected error from GoRun with cancelled context")
+	}
+	if !strings.Contains(err.Error(), "timed out") && !strings.Contains(err.Error(), "context canceled") {
+		t.Errorf("error = %q, want timeout or context error", err)
+	}
+}
+
+// TestGoRunWithEnvContextCancel verifies the ctx.Err() path in GoRunWithEnv.
+func TestGoRunWithEnvContextCancel(t *testing.T) {
+	dir := t.TempDir()
+	pkgDir := filepath.Join(dir, "sleeppkg2")
+	os.MkdirAll(pkgDir, 0o755)
+	os.WriteFile(filepath.Join(pkgDir, "go.mod"), []byte("module sleeppkg2\ngo 1.27.4\n"), 0o644)
+	os.WriteFile(filepath.Join(pkgDir, "main.go"), []byte("package main\nfunc main() {}\n"), 0o644)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := GoRunWithEnv(ctx, pkgDir, []string{"FOO=bar"})
+	if err == nil {
+		t.Fatal("expected error from GoRunWithEnv with cancelled context")
+	}
+	if !strings.Contains(err.Error(), "timed out") && !strings.Contains(err.Error(), "context canceled") {
+		t.Errorf("error = %q, want timeout or context error", err)
+	}
+}
+
+// TestGoRunWithEnvBadDir verifies error when directory doesn't exist.
+func TestGoRunWithEnvBadDir(t *testing.T) {
+	_, err := GoRunWithEnv(context.Background(), "/nonexistent/path", nil)
+	if err == nil {
+		t.Error("expected error for nonexistent directory")
+	}
+}
+
 func findModuleRoot(t *testing.T) string {
 	t.Helper()
 	cmd := exec.Command("go", "env", "GOMOD")
