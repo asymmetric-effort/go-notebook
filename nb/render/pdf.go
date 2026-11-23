@@ -3,6 +3,7 @@
 package render
 
 import (
+	"encoding/base64"
 	"fmt"
 	"regexp"
 	"strings"
@@ -27,20 +28,51 @@ func Typst(doc *document.Document) string {
 			if e.Mime == "text/markdown" {
 				buf.WriteString(markdownToTypst(e.Content))
 				buf.WriteString("\n\n")
+			} else if e.Mime == "image/svg+xml" {
+				// SVG charts: embed as decoded image for Typst rendering.
+				buf.WriteString(fmt.Sprintf("#image.decode(bytes((%s)), format: \"svg\")\n\n", svgToTypstBytes(e.Content)))
 			} else if strings.HasPrefix(e.Mime, "image/") {
-				// Images would be embedded as Typst image() calls.
-				buf.WriteString(fmt.Sprintf("#image(\"data:%s;base64,%s\")\n\n", e.Mime, e.Content))
+				// Raster images: embed as decoded image.
+				buf.WriteString(fmt.Sprintf("#image.decode(bytes((%s)))\n\n", base64ToTypstBytes(e.Content)))
 			}
 		case document.KindError:
 			buf.WriteString(fmt.Sprintf("#block(fill: rgb(\"#fee\"), stroke: rgb(\"#c00\"), inset: 1em)[\n"))
 			buf.WriteString(fmt.Sprintf("  *Error in cell %q (line %d):* %s\n", e.CellName, e.Line, e.Content))
 			buf.WriteString("]\n\n")
 		case document.KindImage:
-			buf.WriteString(fmt.Sprintf("#image(\"data:%s;base64,%s\")\n\n", e.Mime, e.Content))
+			if e.Mime == "image/svg+xml" {
+				buf.WriteString(fmt.Sprintf("#image.decode(bytes((%s)), format: \"svg\")\n\n", svgToTypstBytes(e.Content)))
+			} else {
+				buf.WriteString(fmt.Sprintf("#image.decode(bytes((%s)))\n\n", base64ToTypstBytes(e.Content)))
+			}
 		}
 	}
 
 	return buf.String()
+}
+
+// svgToTypstBytes converts SVG string content to a Typst bytes literal.
+// The content is the raw SVG string (from chart rendering).
+func svgToTypstBytes(svgContent string) string {
+	// Typst bytes literal: comma-separated byte values.
+	var parts []string
+	for _, b := range []byte(svgContent) {
+		parts = append(parts, fmt.Sprintf("%d", b))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// base64ToTypstBytes decodes base64 content to a Typst bytes literal.
+func base64ToTypstBytes(b64Content string) string {
+	data, err := base64.StdEncoding.DecodeString(b64Content)
+	if err != nil {
+		return "0" // Fallback for invalid base64.
+	}
+	var parts []string
+	for _, b := range data {
+		parts = append(parts, fmt.Sprintf("%d", b))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // markdownToTypst converts Markdown prose to Typst markup. Handles headings
