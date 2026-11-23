@@ -45,6 +45,8 @@ type GenerateResult struct {
 	SourceMap     *SourceMap         // Maps Markdown positions to generated Go positions.
 	EmbeddedCells []EmbeddedCellData // Encrypted data for data=embedded cells.
 	EmbeddedFiles []EmbeddedFileData // Encrypted data for reads(name:embed) files.
+	SocketMode    bool               // Generate socket-aware main for notebook mode.
+	TargetCell    string             // Target cell name for socket mode.
 }
 
 // Generate produces Go source code from parsed notebook blocks.

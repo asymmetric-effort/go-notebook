@@ -64,6 +64,7 @@ func assembleSource(gen GenerateResult, notebookPath string) string {
 	// Collect all imports into a single block.
 	hasMarshal := false
 	hasEmbedded := false
+	hasSocket := gen.SocketMode
 	for _, cell := range gen.Cells {
 		if cell.StructCode != "" {
 			hasMarshal = true
@@ -93,7 +94,18 @@ func assembleSource(gen GenerateResult, notebookPath string) string {
 			}
 		}
 	}
+	if hasSocket {
+		for _, pkg := range []string{"\"os\"", "\"log\""} {
+			if !seen[pkg] {
+				fmt.Fprintf(&buf, "\t%s\n", pkg)
+				seen[pkg] = true
+			}
+		}
+	}
 	fmt.Fprintf(&buf, "\tnb \"github.com/asymmetric-effort/go-notebook/nb\"\n")
+	if hasSocket {
+		fmt.Fprintf(&buf, "\t\"github.com/asymmetric-effort/go-notebook/nb/kernel\"\n")
+	}
 	seen["nb \"github.com/asymmetric-effort/go-notebook/nb\""] = true
 	// Add imports extracted from defs blocks, skipping duplicates.
 	for _, imp := range defsImports {
@@ -116,6 +128,9 @@ func assembleSource(gen GenerateResult, notebookPath string) string {
 	}
 	if hasEmbedded {
 		fmt.Fprintf(&buf, "var _ = base64.StdEncoding\nvar _ = os.Getenv\n\n")
+	}
+	if hasSocket {
+		fmt.Fprintf(&buf, "var _ = kernel.DialSocket\nvar _ = log.Fatal\nvar _ = os.Getenv\n\n")
 	}
 
 	// Cell structs, marshal methods, and functions.
@@ -244,6 +259,15 @@ func extractStructFields(structCode string) []string {
 // generateMain creates the main() function that executes cells in document
 // order, checks errors, and renders the report.
 func generateMain(gen GenerateResult, notebookPath string) string {
+	if gen.SocketMode {
+		return generateSocketMain(gen)
+	}
+	return generateBatchMain(gen, notebookPath)
+}
+
+// generateBatchMain creates a main() that runs all cells sequentially
+// in one process (the default batch/report mode).
+func generateBatchMain(gen GenerateResult, notebookPath string) string {
 	var buf strings.Builder
 
 	// Build a map of embedded cell data by name for quick lookup.
@@ -315,6 +339,101 @@ func generateMain(gen GenerateResult, notebookPath string) string {
 	return buf.String()
 }
 
+// generateSocketMain creates a main() for notebook mode. The cell process
+// connects to the kernel's Unix socket (GOBOOK_SOCKET env var), fetches
+// upstream cell data, runs the target cell, and sends the result back.
+func generateSocketMain(gen GenerateResult) string {
+	var buf strings.Builder
+
+	// Identify the target cell (last named cell) and upstream cells.
+	targetCell := gen.TargetCell
+	var upstreamCells []GeneratedCell
+	var targetGen *GeneratedCell
+
+	for i := range gen.Cells {
+		cell := &gen.Cells[i]
+		if cell.StructName == "" {
+			continue
+		}
+		varName := strings.TrimSuffix(cell.StructName, "Cell")
+		if varName == targetCell {
+			targetGen = cell
+		} else {
+			upstreamCells = append(upstreamCells, *cell)
+		}
+	}
+
+	fmt.Fprintf(&buf, "func main() {\n")
+	fmt.Fprintf(&buf, "\tsocketPath := os.Getenv(\"GOBOOK_SOCKET\")\n")
+	fmt.Fprintf(&buf, "\tif socketPath == \"\" {\n")
+	fmt.Fprintf(&buf, "\t\tlog.Fatal(\"GOBOOK_SOCKET not set\")\n")
+	fmt.Fprintf(&buf, "\t}\n\n")
+
+	// Connect to the kernel socket.
+	fmt.Fprintf(&buf, "\tclient, err := kernel.DialSocket(socketPath)\n")
+	fmt.Fprintf(&buf, "\tif err != nil {\n")
+	fmt.Fprintf(&buf, "\t\tlog.Fatalf(\"connect to kernel: %%v\", err)\n")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "\tdefer client.Close()\n\n")
+
+	fmt.Fprintf(&buf, "\tctx := nb.NewContext(nil)\n")
+	fmt.Fprintf(&buf, "\t_ = ctx\n\n")
+
+	// Fetch and unmarshal each upstream cell from the kernel cache.
+	var namedVars []string
+	for _, cell := range upstreamCells {
+		varName := strings.TrimSuffix(cell.StructName, "Cell")
+		fmt.Fprintf(&buf, "\t// Fetch upstream cell %q from kernel.\n", varName)
+		fmt.Fprintf(&buf, "\t%sData, err := client.FetchUpstream(%q)\n", varName, varName)
+		fmt.Fprintf(&buf, "\tif err != nil {\n")
+		fmt.Fprintf(&buf, "\t\t_ = client.SendError(fmt.Sprintf(\"fetch upstream %s: %%v\", err))\n", varName)
+		fmt.Fprintf(&buf, "\t\tlog.Fatalf(\"fetch upstream %s: %%v\", err)\n", varName)
+		fmt.Fprintf(&buf, "\t}\n")
+		fmt.Fprintf(&buf, "\tvar %s %s\n", varName, cell.StructName)
+		fmt.Fprintf(&buf, "\tif err := %s.UnmarshalBinary(%sData); err != nil {\n", varName, varName)
+		fmt.Fprintf(&buf, "\t\t_ = client.SendError(fmt.Sprintf(\"unmarshal %s: %%v\", err))\n", varName)
+		fmt.Fprintf(&buf, "\t\tlog.Fatalf(\"unmarshal %s: %%v\", err)\n", varName)
+		fmt.Fprintf(&buf, "\t}\n\n")
+		namedVars = append(namedVars, varName)
+	}
+
+	// Run the target cell.
+	if targetGen != nil && targetGen.StructName != "" {
+		params := "ctx"
+		if len(namedVars) > 0 {
+			params = "ctx, " + strings.Join(namedVars, ", ")
+		}
+		fmt.Fprintf(&buf, "\t// Run target cell %q.\n", targetCell)
+		fmt.Fprintf(&buf, "\t%s := %s(%s)\n", targetCell, targetGen.FuncName, params)
+		fmt.Fprintf(&buf, "\tif %s.err != nil {\n", targetCell)
+		fmt.Fprintf(&buf, "\t\t_ = client.SendError(%s.err.Error())\n", targetCell)
+		fmt.Fprintf(&buf, "\t\tlog.Fatalf(\"cell %s error: %%v\", %s.err)\n", targetCell, targetCell)
+		fmt.Fprintf(&buf, "\t}\n\n")
+
+		// Send display output from ctx.
+		fmt.Fprintf(&buf, "\t// Send display output to kernel.\n")
+		fmt.Fprintf(&buf, "\tfor _, d := range ctx.Displays() {\n")
+		fmt.Fprintf(&buf, "\t\tif err := client.SendDisplay(d.Mime, []byte(d.Data)); err != nil {\n")
+		fmt.Fprintf(&buf, "\t\t\tlog.Fatalf(\"send display: %%v\", err)\n")
+		fmt.Fprintf(&buf, "\t\t}\n")
+		fmt.Fprintf(&buf, "\t}\n\n")
+
+		// Marshal and send the result.
+		fmt.Fprintf(&buf, "\t// Send serialized result to kernel.\n")
+		fmt.Fprintf(&buf, "\tresultData, err := %s.MarshalBinary()\n", targetCell)
+		fmt.Fprintf(&buf, "\tif err != nil {\n")
+		fmt.Fprintf(&buf, "\t\t_ = client.SendError(fmt.Sprintf(\"marshal result: %%v\", err))\n")
+		fmt.Fprintf(&buf, "\t\tlog.Fatalf(\"marshal result: %%v\", err)\n")
+		fmt.Fprintf(&buf, "\t}\n")
+		fmt.Fprintf(&buf, "\tif err := client.SendResult(%q, resultData); err != nil {\n", targetCell)
+		fmt.Fprintf(&buf, "\t\tlog.Fatalf(\"send result: %%v\", err)\n")
+		fmt.Fprintf(&buf, "\t}\n")
+	}
+
+	fmt.Fprintf(&buf, "}\n")
+	return buf.String()
+}
+
 // goByteSliceLiteral converts a byte slice to a Go source literal.
 func goByteSliceLiteral(data []byte) string {
 	if len(data) == 0 {
@@ -360,4 +479,17 @@ func ExtractCell(gen GenerateResult, cellName string) (GenerateResult, error) {
 		DefsCode:    gen.DefsCode,
 		Cells:       cells,
 	}, nil
+}
+
+// ExtractCellForSocket creates a GenerateResult for notebook-mode socket
+// execution. The generated main connects to the kernel socket, fetches
+// upstream cells, runs the target, and sends the result back.
+func ExtractCellForSocket(gen GenerateResult, cellName string) (GenerateResult, error) {
+	result, err := ExtractCell(gen, cellName)
+	if err != nil {
+		return result, err
+	}
+	result.SocketMode = true
+	result.TargetCell = cellName
+	return result, nil
 }
