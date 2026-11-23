@@ -583,3 +583,173 @@ func TestGenerateMainEmbeddedNoData(t *testing.T) {
 		t.Error("should have MarshalBinary for serialization")
 	}
 }
+
+func TestExtractCellForSocket(t *testing.T) {
+	gen := GenerateResult{
+		PackageName: "main",
+		DefsCode:    "const x = 1",
+		Cells: []GeneratedCell{
+			{StructName: "loadCell", FuncName: "runLoad",
+				StructCode: "type loadCell struct {\n\terr error\n\tval int\n}",
+				FuncCode:   "func runLoad(ctx *nb.Context) (out loadCell) {\n\treturn\n}"},
+			{StructName: "processCell", FuncName: "runProcess",
+				StructCode: "type processCell struct {\n\terr error\n\tresult int\n}",
+				FuncCode:   "func runProcess(ctx *nb.Context, load loadCell) (out processCell) {\n\treturn\n}"},
+		},
+	}
+
+	extracted, err := ExtractCellForSocket(gen, "process")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !extracted.SocketMode {
+		t.Error("SocketMode should be true")
+	}
+	if extracted.TargetCell != "process" {
+		t.Errorf("TargetCell = %q, want %q", extracted.TargetCell, "process")
+	}
+	if len(extracted.Cells) != 2 {
+		t.Fatalf("got %d cells, want 2", len(extracted.Cells))
+	}
+}
+
+func TestExtractCellForSocketNotFound(t *testing.T) {
+	gen := GenerateResult{
+		PackageName: "main",
+		Cells: []GeneratedCell{
+			{StructName: "testCell", FuncName: "runTest"},
+		},
+	}
+	_, err := ExtractCellForSocket(gen, "nonexistent")
+	if err == nil {
+		t.Error("expected error for nonexistent cell")
+	}
+}
+
+func TestGenerateSocketMain(t *testing.T) {
+	gen := GenerateResult{
+		PackageName: "main",
+		SocketMode:  true,
+		TargetCell:  "process",
+		Cells: []GeneratedCell{
+			{StructName: "loadCell", FuncName: "runLoad",
+				StructCode: "type loadCell struct {\n\terr error\n\tval int\n}",
+				FuncCode:   "func runLoad(ctx *nb.Context) (out loadCell) {\n\treturn\n}"},
+			{StructName: "processCell", FuncName: "runProcess",
+				StructCode: "type processCell struct {\n\terr error\n\tresult int\n}",
+				FuncCode:   "func runProcess(ctx *nb.Context, load loadCell) (out processCell) {\n\treturn\n}"},
+		},
+	}
+	src := assembleSource(gen, "test.md")
+
+	// Should have kernel import.
+	if !strings.Contains(src, "nb/kernel") {
+		t.Error("should import nb/kernel for socket mode")
+	}
+	// Should have GOBOOK_SOCKET check.
+	if !strings.Contains(src, "GOBOOK_SOCKET") {
+		t.Error("should check GOBOOK_SOCKET env var")
+	}
+	// Should have DialSocket.
+	if !strings.Contains(src, "kernel.DialSocket") {
+		t.Error("should call kernel.DialSocket")
+	}
+	// Should fetch upstream "load".
+	if !strings.Contains(src, "FetchUpstream") {
+		t.Error("should fetch upstream cells")
+	}
+	// Should unmarshal upstream.
+	if !strings.Contains(src, "UnmarshalBinary") {
+		t.Error("should unmarshal upstream cell data")
+	}
+	// Should run target cell.
+	if !strings.Contains(src, "runProcess") {
+		t.Error("should call runProcess for target cell")
+	}
+	// Should send result.
+	if !strings.Contains(src, "SendResult") {
+		t.Error("should send result back via socket")
+	}
+	// Should send displays.
+	if !strings.Contains(src, "SendDisplay") {
+		t.Error("should send display output")
+	}
+}
+
+func TestSocketMainCompiles(t *testing.T) {
+	src := "```go:notebook name=load exported(val int)\nval = 42\n```\n\n" +
+		"```go:notebook name=process exported(result int)\nresult = load.val + 1\n```\n"
+
+	result := Parse(src)
+	gen, err := Generate(result, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Extract for socket mode.
+	extracted, err := ExtractCellForSocket(gen, "process")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	pkgDir := filepath.Join(dir, "socketpkg")
+	err = WritePackage(extracted, pkgDir, "test.md", "socketpkg")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	moduleRoot := findModuleRoot(t)
+	goMod := "module socketpkg\n\ngo 1.27.4\n\nrequire github.com/asymmetric-effort/go-notebook v0.0.0\n\n" +
+		"replace github.com/asymmetric-effort/go-notebook => " + moduleRoot + "\n"
+	os.WriteFile(filepath.Join(pkgDir, "go.mod"), []byte(goMod), 0o644)
+
+	// THE REAL TEST: verify it compiles.
+	cmd := exec.Command("go", "build", "-o", filepath.Join(dir, "sockettest"+exeSuffix()), ".")
+	cmd.Dir = pkgDir
+	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		genSrc, _ := os.ReadFile(filepath.Join(pkgDir, "main.go"))
+		t.Fatalf("go build failed:\n%s\n---generated---\n%s", out, genSrc)
+	}
+	t.Log("socket mode package compiled successfully")
+}
+
+func TestSocketMainFirstCellNoUpstreams(t *testing.T) {
+	// Socket mode for the first cell — no upstreams to fetch.
+	src := "```go:notebook name=load exported(val int)\nval = 42\n```\n"
+
+	result := Parse(src)
+	gen, err := Generate(result, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	extracted, err := ExtractCellForSocket(gen, "load")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	pkgDir := filepath.Join(dir, "firstpkg")
+	err = WritePackage(extracted, pkgDir, "test.md", "firstpkg")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	moduleRoot := findModuleRoot(t)
+	goMod := "module firstpkg\n\ngo 1.27.4\n\nrequire github.com/asymmetric-effort/go-notebook v0.0.0\n\n" +
+		"replace github.com/asymmetric-effort/go-notebook => " + moduleRoot + "\n"
+	os.WriteFile(filepath.Join(pkgDir, "go.mod"), []byte(goMod), 0o644)
+
+	cmd := exec.Command("go", "build", "-o", filepath.Join(dir, "firsttest"+exeSuffix()), ".")
+	cmd.Dir = pkgDir
+	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		genSrc, _ := os.ReadFile(filepath.Join(pkgDir, "main.go"))
+		t.Fatalf("go build failed:\n%s\n---generated---\n%s", out, genSrc)
+	}
+	t.Log("first cell socket mode compiled successfully")
+}
