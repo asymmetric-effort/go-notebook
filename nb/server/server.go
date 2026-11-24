@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/asymmetric-effort/go-notebook/nb/chart"
 	"github.com/asymmetric-effort/go-notebook/nb/core"
 	"github.com/asymmetric-effort/go-notebook/nb/kernel"
 )
@@ -68,6 +69,7 @@ func New(notebookPath, addr string) *Server {
 	s.mux.HandleFunc("/api/run/all", s.handleRunAll)
 	s.mux.HandleFunc("/api/run/state", s.handleRunState)
 	s.mux.HandleFunc("/api/editor", s.handleEditor)
+	s.mux.HandleFunc("/api/chart.js", s.handleChartScript)
 
 	// Serve static files at /static/.
 	sub, err := fs.Sub(staticFiles, "static")
@@ -429,6 +431,16 @@ func (s *Server) handleEditor(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 }
 
+// handleChartScript serves the embedded chart interaction script.
+func (s *Server) handleChartScript(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	_, _ = w.Write([]byte(chart.ChartScript))
+}
+
 // blockInfo describes a block for the /api/blocks endpoint.
 type blockInfo struct {
 	Kind     string `json:"kind"`               // "prose", "cell", "defs", "output"
@@ -563,15 +575,22 @@ type cellError struct {
 	Kind    string `json:"kind,omitempty"` // "compile", "runtime", "panic", "timeout"
 }
 
+// displayEntry is a display output from a cell for JSON responses.
+type displayEntry struct {
+	Mime string `json:"mime"`
+	Data string `json:"data"`
+}
+
 // runResponse is the JSON response for /api/run.
 type runResponse struct {
-	Cell     string      `json:"cell,omitempty"`
-	Stdout   string      `json:"stdout"`
-	Stderr   string      `json:"stderr"`
-	ExitCode int         `json:"exit_code"`
-	Error    string      `json:"error,omitempty"`
-	Refused  string      `json:"refused,omitempty"` // Name of failed upstream if refused.
-	Errors   []cellError `json:"errors,omitempty"`  // Parsed errors with cell/line context.
+	Cell     string         `json:"cell,omitempty"`
+	Stdout   string         `json:"stdout"`
+	Stderr   string         `json:"stderr"`
+	ExitCode int            `json:"exit_code"`
+	Error    string         `json:"error,omitempty"`
+	Refused  string         `json:"refused,omitempty"`  // Name of failed upstream if refused.
+	Errors   []cellError    `json:"errors,omitempty"`   // Parsed errors with cell/line context.
+	Displays []displayEntry `json:"displays,omitempty"` // Display output (markdown, images, charts).
 }
 
 // handleRun runs a single cell or all cells. Accepts optional JSON body
@@ -842,6 +861,11 @@ func (s *Server) executeNotebook(r *http.Request, cellName string) runResponse {
 
 	// Parse errors from stderr and the error message.
 	resp.Errors = parseRunErrors(cellResult.Stderr, resp.Error, cellName)
+
+	// Include display output from the cell.
+	for _, d := range cellResult.Displays {
+		resp.Displays = append(resp.Displays, displayEntry{Mime: d.Mime, Data: d.Data})
+	}
 
 	// Sanitize output: strip raw SVG content from stdout.
 	resp.Stdout = sanitizeOutput(resp.Stdout)
