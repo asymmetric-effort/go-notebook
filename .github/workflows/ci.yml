@@ -8,24 +8,17 @@ jobs:
   checks:
     name: Lint, scan and coverage
     runs-on: ubuntu-24.04-arm
+    container:
+      image: ghcr.io/${{ github.repository }}/linter:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v6
-        with:
-          go-version: '1.27.4'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install dependencies
-        run: |
-          npm ci
-          go install github.com/asymmetric-effort/leakdetector/cmd/leakdetector@latest
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          go install github.com/checkmake/checkmake/cmd/checkmake@latest
-          go install github.com/google/yamlfmt/cmd/yamlfmt@latest
-          sudo apt-get update && sudo apt-get install -y libxml2-utils
+      - name: Install npm dependencies
+        run: npm ci
       - name: Leakdetector
         run: |
           leakdetector --skip-history --format sarif --report results.sarif || true
