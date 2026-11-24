@@ -94,6 +94,6 @@ jobs:
       - name: VSCode extension tests
         run: |
           cd vscode
-          npm ci
+          npm install --ignore-scripts
           npx tsc -p ./
           node ./out/test/runTests.js
