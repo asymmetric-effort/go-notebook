@@ -341,6 +341,11 @@ class NotebookEditor {
     outputArea.className = "cell-output";
     outputArea.style.display = "none";
 
+    // Display area for rich output (markdown, images, charts).
+    const displayArea = document.createElement("div");
+    displayArea.className = "cell-display";
+    displayArea.style.display = "none";
+
     // body
     section.appendChild(this.labeledTextarea("Body", "body", block.body, true));
     // name
@@ -376,26 +381,33 @@ class NotebookEditor {
       runBtn.textContent = "Run Cell";
       runBtn.className = "run-btn";
       runBtn.addEventListener("click", () => {
-        void this.runCell(block.name, status, outputArea);
+        void this.runCell(block.name, status, outputArea, displayArea);
       });
       btnRow.appendChild(runBtn);
     }
 
     section.appendChild(btnRow);
+    section.appendChild(displayArea);
     section.appendChild(outputArea);
 
     return section;
   }
 
-  private async runCell(name: string, status: HTMLElement, outputArea: HTMLPreElement): Promise<void> {
+  private async runCell(name: string, status: HTMLElement, outputArea: HTMLPreElement, displayArea: HTMLDivElement): Promise<void> {
     status.textContent = "Running…";
     status.className = "status";
+    displayArea.style.display = "none";
+    displayArea.textContent = "";
     try {
       const resp = await fetch("/api/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cell: name }),
       });
+      interface DisplayItem {
+        mime: string;
+        data: string;
+      }
       interface RunResult {
         stdout: string;
         stderr: string;
@@ -403,6 +415,7 @@ class NotebookEditor {
         error: string;
         refused: string;
         errors: Array<{ message: string; cell: string; file: string; line: number; kind: string }>;
+        displays: DisplayItem[];
       }
       const result: RunResult = await resp.json() as RunResult;
 
@@ -441,11 +454,67 @@ class NotebookEditor {
           outputArea.style.display = "none";
         }
       }
+
+      // Render display output (markdown, images, charts).
+      const displays = result.displays ?? [];
+      if (displays.length > 0) {
+        this.renderDisplays(displayArea, displays);
+      }
+
       void this.refreshStaleMarkers();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       status.textContent = "Network error: " + msg;
       status.className = "status error";
+    }
+  }
+
+  private renderDisplays(area: HTMLDivElement, displays: Array<{ mime: string; data: string }>): void {
+    area.textContent = "";
+    area.style.display = "block";
+
+    for (const d of displays) {
+      if (d.mime === "text/markdown" || d.mime === "text/plain") {
+        const pre = document.createElement("pre");
+        pre.className = "display-text";
+        pre.textContent = d.data;
+        area.appendChild(pre);
+      } else if (d.mime.startsWith("image/svg+xml")) {
+        // Render SVG chart inline (trusted, tool-generated).
+        const container = document.createElement("div");
+        container.className = "display-chart";
+        container.innerHTML = d.data;
+        area.appendChild(container);
+        // Initialize chart interactivity if chart script is loaded.
+        this.initChartInteraction();
+      } else if (d.mime.startsWith("image/")) {
+        // Render image as base64 data URI.
+        const img = document.createElement("img");
+        img.src = "data:" + d.mime + ";base64," + d.data;
+        img.className = "display-image";
+        img.alt = "Cell output";
+        area.appendChild(img);
+      } else {
+        // Unknown MIME type — show as text.
+        const pre = document.createElement("pre");
+        pre.className = "display-text";
+        pre.textContent = "[" + d.mime + "] " + d.data;
+        area.appendChild(pre);
+      }
+    }
+  }
+
+  private initChartInteraction(): void {
+    // Load chart script dynamically if not already loaded.
+    if (!document.querySelector("script[src='/api/chart.js']")) {
+      const script = document.createElement("script");
+      script.src = "/api/chart.js";
+      script.onload = (): void => {
+        // Re-trigger chart initialization after script loads.
+        const event = new Event("DOMContentLoaded");
+        document.dispatchEvent(event);
+      };
+      document.head.appendChild(script);
     }
   }
 

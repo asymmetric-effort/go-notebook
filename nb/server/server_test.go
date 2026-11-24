@@ -1156,3 +1156,64 @@ func TestSecretNeverInNotebook(t *testing.T) {
 	}
 	s.mu.RUnlock()
 }
+
+func TestChartScriptEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest("GET", "/api/chart.js", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	ct := w.Header().Get("Content-Type")
+	if !strings.Contains(ct, "javascript") {
+		t.Errorf("Content-Type = %q, want javascript", ct)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "initCharts") {
+		t.Error("chart script should contain initCharts")
+	}
+}
+
+func TestChartScriptMethodNotAllowed(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest("POST", "/api/chart.js", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestRunResponseIncludesDisplays(t *testing.T) {
+	// Verify the displayEntry type serializes correctly.
+	resp := runResponse{
+		Cell:     "test",
+		ExitCode: 0,
+		Displays: []displayEntry{
+			{Mime: "text/markdown", Data: "hello"},
+			{Mime: "image/svg+xml", Data: "<svg></svg>"},
+		},
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !strings.Contains(s, "text/markdown") {
+		t.Error("response should contain markdown display")
+	}
+	if !strings.Contains(s, "image/svg+xml") {
+		t.Error("response should contain SVG display")
+	}
+}
