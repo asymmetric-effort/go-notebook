@@ -46,3 +46,6 @@ typst-module/target/
 /gen/
 cmd/gobook/commands/gen/
 /gobook
+
+# VSCode extension build output
+vscode/out/

@@ -1,0 +1,69 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"scopeName": "source.gobook.injection",
+	"injectionSelector": "L:text.html.markdown",
+	"patterns": [
+		{
+			"include": "#gobook-notebook-block"
+		},
+		{
+			"include": "#gobook-defs-block"
+		}
+	],
+	"repository": {
+		"gobook-notebook-block": {
+			"begin": "(^|\\G)(\\s*)(```+)\\s*(go:notebook)(.*)$",
+			"end": "(^|\\G)(\\2)(\\3)\\s*$",
+			"beginCaptures": {
+				"3": {
+					"name": "punctuation.definition.markdown.gobook"
+				},
+				"4": {
+					"name": "entity.name.tag.gobook.notebook"
+				},
+				"5": {
+					"name": "string.other.gobook.attributes"
+				}
+			},
+			"endCaptures": {
+				"3": {
+					"name": "punctuation.definition.markdown.gobook"
+				}
+			},
+			"name": "markup.fenced_code.block.markdown.gobook.notebook",
+			"contentName": "meta.embedded.block.gobook",
+			"patterns": [
+				{
+					"include": "source.go"
+				}
+			]
+		},
+		"gobook-defs-block": {
+			"begin": "(^|\\G)(\\s*)(```+)\\s*(go:defs)(.*)$",
+			"end": "(^|\\G)(\\2)(\\3)\\s*$",
+			"beginCaptures": {
+				"3": {
+					"name": "punctuation.definition.markdown.gobook"
+				},
+				"4": {
+					"name": "entity.name.tag.gobook.defs"
+				},
+				"5": {
+					"name": "string.other.gobook.attributes"
+				}
+			},
+			"endCaptures": {
+				"3": {
+					"name": "punctuation.definition.markdown.gobook"
+				}
+			},
+			"name": "markup.fenced_code.block.markdown.gobook.defs",
+			"contentName": "meta.embedded.block.gobook",
+			"patterns": [
+				{
+					"include": "source.go"
+				}
+			]
+		}
+	}
+}
