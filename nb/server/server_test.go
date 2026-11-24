@@ -1217,3 +1217,186 @@ func TestRunResponseIncludesDisplays(t *testing.T) {
 		t.Error("response should contain SVG display")
 	}
 }
+
+func TestLSPDiagnosticsCleanNotebook(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n\n```go:notebook name=test exported(val int)\nval = 42\n```\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest("GET", "/api/lsp/diagnostics", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	diags, _ := resp["diagnostics"].([]interface{})
+	if len(diags) != 0 {
+		t.Errorf("clean notebook should have no diagnostics, got %v", resp)
+	}
+}
+
+func TestLSPDiagnosticsWithErrors(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	// exported without name triggers checker rule 1.
+	os.WriteFile(notebook, []byte("```go:notebook exported(val int)\nval = 1\n```\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest("GET", "/api/lsp/diagnostics", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	diags, ok := resp["diagnostics"].([]interface{})
+	if !ok || len(diags) == 0 {
+		t.Error("notebook with errors should have diagnostics")
+	}
+}
+
+func TestLSPDiagnosticsMethodNotAllowed(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest("POST", "/api/lsp/diagnostics", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestLSPCompletion(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("```go:notebook name=load exported(val int)\nval = 42\n```\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest("GET", "/api/lsp/completion", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "load") {
+		t.Error("completion should include cell name 'load'")
+	}
+	if !strings.Contains(body, "load.val") {
+		t.Error("completion should include field 'load.val'")
+	}
+	if !strings.Contains(body, "ctx.Display") {
+		t.Error("completion should include runtime keywords")
+	}
+}
+
+func TestLSPCompletionMethodNotAllowed(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest("POST", "/api/lsp/completion", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestLSPHoverCellName(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("```go:notebook name=load exported(val int)\nval = 42\n```\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest("GET", "/api/lsp/hover?word=load", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Cell load") {
+		t.Error("hover should show cell name")
+	}
+	if !strings.Contains(body, "val int") {
+		t.Error("hover should show exported fields")
+	}
+}
+
+func TestLSPHoverField(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("```go:notebook name=load exported(val int)\nval = 42\n```\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest("GET", "/api/lsp/hover?word=load.val", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "load.val") {
+		t.Error("hover should show field reference")
+	}
+	if !strings.Contains(body, "int") {
+		t.Error("hover should show field type")
+	}
+}
+
+func TestLSPHoverMissingWord(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest("GET", "/api/lsp/hover", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestLSPHoverUnknownWord(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("```go:notebook name=test exported(val int)\nval = 1\n```\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest("GET", "/api/lsp/hover?word=nonexistent", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	// Should return empty content for unknown word.
+	var info hoverInfo
+	json.Unmarshal(w.Body.Bytes(), &info)
+	if info.Content != "" {
+		t.Errorf("hover for unknown word should be empty, got %q", info.Content)
+	}
+}

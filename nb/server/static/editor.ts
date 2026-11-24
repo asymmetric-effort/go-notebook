@@ -99,8 +99,60 @@ class NotebookEditor {
       }
     }
 
-    // Load initial cell states.
+    // Load initial cell states and diagnostics.
     void this.refreshStaleMarkers();
+    void this.refreshDiagnostics();
+  }
+
+  private async refreshDiagnostics(): Promise<void> {
+    try {
+      const resp = await fetch("/api/lsp/diagnostics");
+      if (!resp.ok) return;
+      interface Diagnostic {
+        file: string;
+        line: number;
+        col: number;
+        message: string;
+        severity: string;
+      }
+      const data: { diagnostics: Diagnostic[] } = await resp.json() as { diagnostics: Diagnostic[] };
+      const diags = data.diagnostics ?? [];
+
+      // Clear existing diagnostic markers.
+      const existing = this.container.querySelectorAll(".diagnostic-marker");
+      for (const el of existing) {
+        el.remove();
+      }
+
+      // Show diagnostics panel if there are any.
+      let panel = document.getElementById("diagnostics-panel");
+      if (!panel) {
+        panel = document.createElement("div");
+        panel.id = "diagnostics-panel";
+        panel.className = "diagnostics-panel";
+        this.container.insertBefore(panel, this.container.firstChild);
+      }
+
+      if (diags.length === 0) {
+        panel.style.display = "none";
+        return;
+      }
+
+      panel.style.display = "block";
+      panel.textContent = "";
+      const heading = document.createElement("h3");
+      heading.textContent = "Diagnostics (" + diags.length + ")";
+      panel.appendChild(heading);
+
+      for (const d of diags) {
+        const div = document.createElement("div");
+        div.className = "diagnostic diagnostic-" + d.severity;
+        div.textContent = (d.line > 0 ? "Line " + d.line + ": " : "") + d.message;
+        panel.appendChild(div);
+      }
+    } catch {
+      // Ignore diagnostic fetch errors.
+    }
   }
 
   private async runAll(status: HTMLElement): Promise<void> {
