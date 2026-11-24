@@ -152,6 +152,9 @@ func TestCopyFileReadOnlyDest(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("read-only dirs work differently on Windows")
 	}
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses file permission checks")
+	}
 	srcDir := t.TempDir()
 	src := filepath.Join(srcDir, "file.txt")
 	os.WriteFile(src, []byte("data"), 0o644)
