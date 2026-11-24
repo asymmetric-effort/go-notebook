@@ -21,6 +21,7 @@ import (
 	"github.com/asymmetric-effort/go-notebook/nb/chart"
 	"github.com/asymmetric-effort/go-notebook/nb/core"
 	"github.com/asymmetric-effort/go-notebook/nb/kernel"
+	"github.com/asymmetric-effort/go-notebook/nb/lsp"
 )
 
 //go:embed static
@@ -37,6 +38,15 @@ type cellState struct {
 	Failed   bool   `json:"failed"`
 }
 
+// lspDiagnostic is a diagnostic from gopls mapped to Markdown positions.
+type lspDiagnostic struct {
+	File     string `json:"file"`
+	Line     int    `json:"line"` // 1-based Markdown line.
+	Col      int    `json:"col"`  // 1-based column.
+	Message  string `json:"message"`
+	Severity string `json:"severity"` // "error", "warning", "info", "hint"
+}
+
 // Server is the gobook serve HTTP server.
 type Server struct {
 	addr         string
@@ -47,6 +57,8 @@ type Server struct {
 	lastParse    core.ParseResult
 	cellStates   map[string]*cellState // Per-cell execution state by name.
 	secrets      map[string]string     // In-memory secrets, never persisted.
+	lspProxy     *lsp.Proxy            // LSP proxy to gopls (lazy init).
+	diagnostics  []lspDiagnostic       // Cached diagnostics from last check.
 }
 
 // New creates a new server for the given notebook.
@@ -70,6 +82,9 @@ func New(notebookPath, addr string) *Server {
 	s.mux.HandleFunc("/api/run/state", s.handleRunState)
 	s.mux.HandleFunc("/api/editor", s.handleEditor)
 	s.mux.HandleFunc("/api/chart.js", s.handleChartScript)
+	s.mux.HandleFunc("/api/lsp/diagnostics", s.handleLSPDiagnostics)
+	s.mux.HandleFunc("/api/lsp/completion", s.handleLSPCompletion)
+	s.mux.HandleFunc("/api/lsp/hover", s.handleLSPHover)
 
 	// Serve static files at /static/.
 	sub, err := fs.Sub(staticFiles, "static")
@@ -1076,6 +1091,180 @@ func sanitizeOutput(output string) string {
 		result.WriteString("\n")
 	}
 	return strings.TrimRight(result.String(), "\n")
+}
+
+// handleLSPDiagnostics returns diagnostics from checking the notebook.
+// It parses, checks, and optionally generates+vets the code, mapping
+// all errors back to Markdown line numbers.
+func (s *Server) handleLSPDiagnostics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	src, err := os.ReadFile(s.notebookPath)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	var diags []lspDiagnostic
+
+	// Run checker for rule violations.
+	result := core.Parse(string(src))
+	errs := core.Check(result)
+	for _, e := range errs {
+		d := lspDiagnostic{
+			File:     filepath.Base(s.notebookPath),
+			Message:  e.Error(),
+			Severity: "error",
+		}
+		// Extract line number from error if available.
+		if ce, ok := e.(*core.CheckError); ok {
+			d.Line = ce.Line
+		}
+		diags = append(diags, d)
+	}
+
+	// Cache diagnostics.
+	s.mu.Lock()
+	s.diagnostics = diags
+	s.mu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"diagnostics": diags,
+	})
+}
+
+// completionItem is a completion suggestion for the editor.
+type completionItem struct {
+	Label  string `json:"label"`
+	Kind   string `json:"kind"`   // "cell", "field", "keyword"
+	Detail string `json:"detail"` // Type or description.
+}
+
+// handleLSPCompletion returns completion items for a position in the notebook.
+// It provides cell names, exported fields, and common keywords.
+func (s *Server) handleLSPCompletion(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	src, err := os.ReadFile(s.notebookPath)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	result := core.Parse(string(src))
+	var items []completionItem
+
+	// Add named cells and their exported fields.
+	for _, b := range result.Blocks {
+		if b.Kind != core.BlockCell {
+			continue
+		}
+		attrs, _ := core.ParseInfoString(b.Info, b.StartPos.Line)
+		if attrs.Name == "" {
+			continue
+		}
+		items = append(items, completionItem{
+			Label:  attrs.Name,
+			Kind:   "cell",
+			Detail: "cell struct",
+		})
+		// Add exported fields as "cell.field" completions.
+		if attrs.Exported != "" {
+			for _, field := range strings.Split(attrs.Exported, ",") {
+				field = strings.TrimSpace(field)
+				parts := strings.Fields(field)
+				if len(parts) >= 2 {
+					items = append(items, completionItem{
+						Label:  attrs.Name + "." + parts[0],
+						Kind:   "field",
+						Detail: parts[1],
+					})
+				}
+			}
+		}
+	}
+
+	// Add common keywords.
+	for _, kw := range []string{"ctx.Display", "ctx.Open", "ctx.Create", "ctx.Secret", "ctx.Chart"} {
+		items = append(items, completionItem{Label: kw, Kind: "keyword", Detail: "runtime method"})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"items": items,
+	})
+}
+
+// hoverInfo is hover information for the editor.
+type hoverInfo struct {
+	Content string `json:"content"` // Markdown-formatted hover text.
+}
+
+// handleLSPHover returns hover information for a cell name or field reference.
+func (s *Server) handleLSPHover(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	word := r.URL.Query().Get("word")
+	if word == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "word parameter required"})
+		return
+	}
+
+	src, err := os.ReadFile(s.notebookPath)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	result := core.Parse(string(src))
+
+	// Look for cell name or field reference.
+	parts := strings.SplitN(word, ".", 2)
+	cellName := parts[0]
+
+	for _, b := range result.Blocks {
+		if b.Kind != core.BlockCell {
+			continue
+		}
+		attrs, _ := core.ParseInfoString(b.Info, b.StartPos.Line)
+		if attrs.Name != cellName {
+			continue
+		}
+
+		if len(parts) == 1 {
+			// Hover on cell name — show cell signature.
+			info := fmt.Sprintf("**Cell %s**\n\nLine %d", attrs.Name, b.StartPos.Line)
+			if attrs.Exported != "" {
+				info += fmt.Sprintf("\n\nExported: `%s`", attrs.Exported)
+			}
+			writeJSON(w, http.StatusOK, hoverInfo{Content: info})
+			return
+		}
+
+		// Hover on field — show field type.
+		fieldName := parts[1]
+		if attrs.Exported != "" {
+			for _, field := range strings.Split(attrs.Exported, ",") {
+				field = strings.TrimSpace(field)
+				fp := strings.Fields(field)
+				if len(fp) >= 2 && fp[0] == fieldName {
+					info := fmt.Sprintf("**%s.%s** `%s`", attrs.Name, fp[0], fp[1])
+					writeJSON(w, http.StatusOK, hoverInfo{Content: info})
+					return
+				}
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, hoverInfo{Content: ""})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
