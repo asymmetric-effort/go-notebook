@@ -139,6 +139,9 @@ func TestCompareGoldenUpdateWriteFails(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("read-only directory permissions work differently on Windows")
 	}
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses file permission checks")
+	}
 	dir := t.TempDir()
 	// Create a read-only directory.
 	roDir := filepath.Join(dir, "readonly")
