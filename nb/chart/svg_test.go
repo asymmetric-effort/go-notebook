@@ -137,3 +137,50 @@ func TestRenderSVGUnknownPanics(t *testing.T) {
 	}()
 	RenderSVG(42)
 }
+
+func TestBarSVGEscapesHostileLabels(t *testing.T) {
+	c := Bar{
+		Title:  "<script>alert('xss')</script>",
+		Labels: []string{"<img onerror=alert(1)>", "normal"},
+		Series: []Series{{Name: "<b>bold</b>", Values: []float64{10, 20}}},
+	}
+	svg := RenderBarSVG(c)
+	if strings.Contains(svg, "<script>") {
+		t.Error("script tag should be escaped in SVG title")
+	}
+	// The hostile label text appears as escaped content inside <text> elements,
+	// not as executable HTML attributes. Verify no unescaped tags.
+	if strings.Contains(svg, "<img ") {
+		t.Error("img tag should be escaped in SVG label")
+	}
+	if strings.Contains(svg, "<b>") {
+		t.Error("HTML tags should be escaped in series name")
+	}
+}
+
+func TestLineSVGEscapesHostileLabels(t *testing.T) {
+	c := Line{
+		Title:  "<script>alert('xss')</script>",
+		X:      []float64{1, 2},
+		Series: []Series{{Name: "<b>bold</b>", Values: []float64{10, 20}}},
+	}
+	svg := RenderLineSVG(c)
+	if strings.Contains(svg, "<script>") {
+		t.Error("script tag should be escaped in SVG")
+	}
+}
+
+func TestPieSVGEscapesHostileLabels(t *testing.T) {
+	c := Pie{
+		Title:  "<script>alert('xss')</script>",
+		Labels: []string{"<img src=x onerror=alert(1)>", "safe"},
+		Values: []float64{60, 40},
+	}
+	svg := RenderPieSVG(c)
+	if strings.Contains(svg, "<script>") {
+		t.Error("script tag should be escaped in SVG")
+	}
+	if strings.Contains(svg, "<img ") {
+		t.Error("img tag should be escaped in SVG label")
+	}
+}
