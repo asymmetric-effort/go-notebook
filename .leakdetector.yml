@@ -2,7 +2,9 @@
 # https://leakdetector.asymmetric-effort.com/
 exclude_paths:
   - "node_modules/"
+  - "**/node_modules/"
   - ".git/"
   - "vendor/"
   - "typst-module/target/"
   - ".claude/"
+  - "vscode/out/"

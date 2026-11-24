@@ -1,0 +1,57 @@
+{
+	"name": "go-notebook",
+	"displayName": "Go Notebook",
+	"description": "Syntax highlighting and language features for go-notebook (.md) files",
+	"version": "0.1.0",
+	"publisher": "asymmetric-effort",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.85.0"
+	},
+	"categories": [
+		"Programming Languages"
+	],
+	"activationEvents": [
+		"onLanguage:markdown"
+	],
+	"main": "./out/extension.js",
+	"contributes": {
+		"grammars": [
+			{
+				"scopeName": "source.gobook.injection",
+				"path": "./syntaxes/gobook.tmLanguage.json",
+				"injectTo": [
+					"text.html.markdown"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.gobook": "go"
+				}
+			}
+		],
+		"configuration": {
+			"title": "Go Notebook",
+			"properties": {
+				"goNotebook.gobookPath": {
+					"type": "string",
+					"default": "gobook",
+					"description": "Path to the gobook binary"
+				}
+			}
+		}
+	},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"lint": "eslint src/",
+		"test": "node ./out/test/runTests.js"
+	},
+	"devDependencies": {
+		"@types/vscode": "^1.85.0",
+		"@types/node": "^22.0.0",
+		"@types/mocha": "^10.0.0",
+		"mocha": "^11.0.0",
+		"typescript": "^5.9.0"
+	},
+	"dependencies": {
+		"vscode-languageclient": "^9.0.0"
+	}
+}
