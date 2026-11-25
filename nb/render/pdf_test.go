@@ -202,3 +202,60 @@ func TestTypstPreamble(t *testing.T) {
 		t.Error("missing text setup")
 	}
 }
+
+func TestMarkdownToTypstTable(t *testing.T) {
+	md := "| Header | Value |\n| --- | --- |\n| A | 1 |\n| B | 2 |"
+	got := markdownToTypst(md)
+	if !strings.Contains(got, "#table(columns: 2,") {
+		t.Errorf("table should produce #table directive, got: %s", got)
+	}
+	if !strings.Contains(got, "[Header]") {
+		t.Error("table should contain header cells")
+	}
+	if !strings.Contains(got, "[A]") {
+		t.Error("table should contain data cells")
+	}
+}
+
+func TestMarkdownToTypstHardLineBreak(t *testing.T) {
+	got := markdownToTypst("first line  \nsecond line")
+	if !strings.Contains(got, "\\") {
+		t.Errorf("hard line break (two spaces) should produce backslash, got: %s", got)
+	}
+}
+
+func TestMarkdownToTypstIndentedCode(t *testing.T) {
+	got := markdownToTypst("    code line")
+	if !strings.Contains(got, "#raw(") {
+		t.Errorf("indented code should produce #raw, got: %s", got)
+	}
+	if !strings.Contains(got, "code line") {
+		t.Error("indented code should preserve content")
+	}
+}
+
+func TestMarkdownToTypstAutolink(t *testing.T) {
+	got := markdownToTypst("<https://example.com>")
+	if !strings.Contains(got, "#link(\"https://example.com\")") {
+		t.Errorf("autolink should produce #link, got: %s", got)
+	}
+}
+
+func TestSplitTableRow(t *testing.T) {
+	cells := splitTableRow("| A | B | C |")
+	if len(cells) != 3 {
+		t.Fatalf("got %d cells, want 3", len(cells))
+	}
+}
+
+func TestIsTableSeparator(t *testing.T) {
+	if !isTableSeparator("| --- | --- |") {
+		t.Error("should be separator")
+	}
+	if !isTableSeparator("|:---:|:---:|") {
+		t.Error("aligned separator should match")
+	}
+	if isTableSeparator("| A | B |") {
+		t.Error("data row should not be separator")
+	}
+}
