@@ -3,6 +3,8 @@
 package core
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -178,5 +180,108 @@ func TestCheckErrorLine(t *testing.T) {
 	}
 	if ce.Line != 3 {
 		t.Errorf("Line = %d, want 3", ce.Line)
+	}
+}
+
+func TestCheckRule20RemoteStylesheet(t *testing.T) {
+	src := "<link rel=\"stylesheet\" href=\"https://cdn.example.com/style.css\">\n"
+	result := Parse(src)
+	errs := Check(result)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "rule 20") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected rule 20 error for remote stylesheet, got: %v", errs)
+	}
+}
+
+func TestCheckRule20RemoteHTTP(t *testing.T) {
+	src := "<link rel=\"stylesheet\" href=\"http://evil.com/track.css\">\n"
+	result := Parse(src)
+	errs := Check(result)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "rule 20") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected rule 20 error for http stylesheet, got: %v", errs)
+	}
+}
+
+func TestCheckRule20LocalStylesheetAllowed(t *testing.T) {
+	src := "<link rel=\"stylesheet\" href=\"style.css\">\n"
+	result := Parse(src)
+	errs := Check(result)
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "rule 20") {
+			t.Errorf("local stylesheet should be allowed: %v", e)
+		}
+	}
+}
+
+func TestCheckRule20InlineStyleAllowed(t *testing.T) {
+	src := "<style>body { color: red; }</style>\n"
+	result := Parse(src)
+	errs := Check(result)
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "rule 20") {
+			t.Errorf("inline style should be allowed: %v", e)
+		}
+	}
+}
+
+func TestCheckRule20RemoteFontLink(t *testing.T) {
+	src := "<link href=\"https://fonts.googleapis.com/css?family=Roboto\" rel=\"stylesheet\">\n"
+	result := Parse(src)
+	errs := Check(result)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "rule 20") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected rule 20 error for remote font link, got: %v", errs)
+	}
+}
+
+func TestCheckRule21ValidSVG(t *testing.T) {
+	dir := t.TempDir()
+	svgPath := filepath.Join(dir, "valid.svg")
+	os.WriteFile(svgPath, []byte(`<svg xmlns="http://www.w3.org/2000/svg"><circle r="10"/></svg>`), 0o644)
+
+	src := "![chart](" + filepath.Base(svgPath) + ")\n"
+	result := Parse(src)
+	opts := CheckOptions{NotebookDir: dir}
+	errs := CheckWithOptions(result, opts)
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "rule 21") {
+			t.Errorf("valid SVG should pass: %v", e)
+		}
+	}
+}
+
+func TestCheckRule21MalformedSVG(t *testing.T) {
+	dir := t.TempDir()
+	svgPath := filepath.Join(dir, "broken.svg")
+	os.WriteFile(svgPath, []byte(`<svg><not closed`), 0o644)
+
+	src := "![chart](" + filepath.Base(svgPath) + ")\n"
+	result := Parse(src)
+	opts := CheckOptions{NotebookDir: dir}
+	errs := CheckWithOptions(result, opts)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "rule 21") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("malformed SVG should trigger rule 21 error, got: %v", errs)
 	}
 }

@@ -3,10 +3,12 @@
 package core
 
 import (
+	"encoding/xml"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -265,6 +267,15 @@ func checkProse(b Block, opts CheckOptions) []error {
 							Message: fmt.Sprintf("image %q has unsupported format %q (rule 17). Accepted: png, jpg, gif, webp, bmp, tiff, svg.", imgPath, ext),
 						})
 					}
+					// Rule 21: SVG files must be valid XML.
+					if ext == ".svg" {
+						if svgErr := validateSVGXML(fullPath); svgErr != nil {
+							errs = append(errs, &CheckError{
+								Line:    mdLine,
+								Message: fmt.Sprintf("SVG %q is not valid XML (rule 21): %v", imgPath, svgErr),
+							})
+						}
+					}
 				}
 			}
 		}
@@ -299,6 +310,21 @@ func checkProse(b Block, opts CheckOptions) []error {
 			}
 		}
 
+		// Rule 20: Remote resource references in <link> href are refused.
+		// Stylesheets and fonts must be local/embeddable, not remote URLs.
+		if strings.Contains(strings.ToLower(line), "<link") {
+			for _, match := range htmlAttrRegex.FindAllStringSubmatch(line, -1) {
+				attr := match[1]
+				val := match[2]
+				if strings.EqualFold(attr, "href") && isWebURL(val) {
+					errs = append(errs, &CheckError{
+						Line:    mdLine,
+						Message: fmt.Sprintf("remote resource %q in <link> href is not allowed (rule 20). Embed the stylesheet or font locally.", val),
+					})
+				}
+			}
+		}
+
 		// Rule 19: No DOCTYPE or entity declarations.
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(strings.ToUpper(trimmed), "<!DOCTYPE") {
@@ -316,6 +342,25 @@ func checkProse(b Block, opts CheckOptions) []error {
 	}
 
 	return errs
+}
+
+// validateSVGXML checks that an SVG file is well-formed XML.
+// Full conversion to PNG is verified at render time by the Typst engine.
+func validateSVGXML(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	decoder := xml.NewDecoder(strings.NewReader(string(data)))
+	for {
+		_, err := decoder.Token()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("invalid XML: %v", err)
+		}
+	}
 }
 
 // isWebURL checks if a reference is an HTTP/HTTPS URL.
