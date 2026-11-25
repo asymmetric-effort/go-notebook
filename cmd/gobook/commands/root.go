@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -29,29 +30,38 @@ var rootCmd = &cobra.Command{
 	SilenceErrors: true,
 }
 
-var buildFormat string
 var buildOutput string
-var buildTimeout string
 var buildPassphrase bool
 var buildPassphraseFile string
 var buildSignKey string
-var buildRecipients []string
+var buildNoPDF bool
+var buildNoHTML bool
+var buildNoMarkdown bool
+var buildOS string
+var buildArch string
 
 var buildCmd = &cobra.Command{
 	Use:   "build <notebook.md>",
-	Short: "Build a notebook into a report",
+	Short: "Compile a notebook into a standalone report binary",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		passphrase, err := resolvePassphrase(buildPassphrase, buildPassphraseFile)
 		if err != nil {
 			return err
 		}
-		err = cmdBuild(args[0], build.Options{
-			Format:     buildFormat,
+		opts := build.BuildOptions{
 			Output:     buildOutput,
-			Timeout:    buildTimeout,
 			Passphrase: passphrase,
-		})
+			NoPDF:      buildNoPDF,
+			NoHTML:     buildNoHTML,
+			NoMarkdown: buildNoMarkdown,
+		}
+		if buildOS != "" || buildArch != "" {
+			opts.Cross.GOOS = buildOS
+			opts.Cross.GOARCH = buildArch
+			opts.Cross.CGOEnabled = "0"
+		}
+		err = build.BuildBinary(args[0], opts)
 		if err != nil {
 			return err
 		}
@@ -59,11 +69,7 @@ var buildCmd = &cobra.Command{
 		if buildSignKey != "" {
 			outPath := buildOutput
 			if outPath == "" {
-				format := buildFormat
-				if format == "" {
-					format = "html"
-				}
-				outPath = args[0] + "." + format
+				outPath = strings.TrimSuffix(filepath.Base(args[0]), filepath.Ext(args[0]))
 			}
 			if err := identity.SignFile(outPath, buildSignKey); err != nil {
 				return fmt.Errorf("sign: %w", err)
@@ -73,6 +79,11 @@ var buildCmd = &cobra.Command{
 		return nil
 	},
 }
+
+// Variables for gobook run (renders directly via temp binary).
+var runFormat string
+var runOutput string
+var runTimeout string
 
 var checkCmd = &cobra.Command{
 	Use:   "check <notebook.md>",
@@ -105,11 +116,52 @@ var genCmd = &cobra.Command{
 }
 
 var runCmd = &cobra.Command{
-	Use:   "run <notebook.md>",
-	Short: "Run all cells in a notebook",
-	Args:  cobra.ExactArgs(1),
+	Use:   "run <notebook.md> [-- flags for the report binary]",
+	Short: "Build and run a notebook, producing a report file",
+	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return cmdRun(args[0])
+		notebookPath := args[0]
+
+		// Build to a temp directory.
+		tmpDir, err := os.MkdirTemp("", "gobook-run-*")
+		if err != nil {
+			return fmt.Errorf("create temp dir: %w", err)
+		}
+		defer os.RemoveAll(tmpDir)
+
+		binPath := filepath.Join(tmpDir, "report")
+		if runtime.GOOS == "windows" {
+			binPath += ".exe"
+		}
+
+		err = build.BuildBinary(notebookPath, build.BuildOptions{
+			Output: binPath,
+		})
+		if err != nil {
+			return fmt.Errorf("build: %w", err)
+		}
+
+		// Execute the temp binary, passing through flags after --.
+		binArgs := cmd.ArgsLenAtDash()
+		var passthrough []string
+		if binArgs >= 0 && binArgs < len(args) {
+			passthrough = args[binArgs:]
+		} else {
+			// No -- separator: use default flags.
+			passthrough = []string{"--format", "html"}
+			if runOutput != "" {
+				passthrough = append(passthrough, "-o", runOutput)
+			}
+			if runFormat != "" {
+				passthrough[1] = runFormat
+			}
+		}
+
+		execCmd := exec.Command(binPath, passthrough...)
+		execCmd.Stdout = os.Stdout
+		execCmd.Stderr = os.Stderr
+		execCmd.Stdin = os.Stdin
+		return execCmd.Run()
 	},
 }
 
@@ -182,14 +234,19 @@ var vetCmd = &cobra.Command{
 }
 
 func init() {
-	buildCmd.Flags().StringVar(&buildFormat, "format", "", "output format (md, html, typst, pdf)")
-	buildCmd.Flags().StringVarP(&buildOutput, "output", "o", "", "output file path")
-	buildCmd.Flags().StringVar(&buildTimeout, "cell-timeout", "", "per-cell timeout")
+	buildCmd.Flags().StringVarP(&buildOutput, "output", "o", "", "output binary path")
 	buildCmd.Flags().BoolVar(&buildPassphrase, "passphrase", false, "prompt for encryption passphrase")
 	buildCmd.Flags().StringVar(&buildPassphraseFile, "passphrase-file", "", "read passphrase from file")
 	buildCmd.MarkFlagsMutuallyExclusive("passphrase", "passphrase-file")
 	buildCmd.Flags().StringVar(&buildSignKey, "sign-key", "", "sign output with ML-DSA-65 private key")
-	buildCmd.Flags().StringArrayVar(&buildRecipients, "recipient", nil, "encrypt for recipient public key (repeatable)")
+	buildCmd.Flags().BoolVar(&buildNoPDF, "no-pdf", false, "exclude PDF/Typst engine from binary")
+	buildCmd.Flags().BoolVar(&buildNoHTML, "no-html", false, "exclude HTML/CommonMark from binary")
+	buildCmd.Flags().BoolVar(&buildNoMarkdown, "no-markdown", false, "exclude Markdown backend from binary")
+	buildCmd.Flags().StringVar(&buildOS, "os", "", "target OS for cross-compilation")
+	buildCmd.Flags().StringVar(&buildArch, "arch", "", "target architecture for cross-compilation")
+
+	runCmd.Flags().StringVar(&runFormat, "format", "html", "output format (html, pdf, md)")
+	runCmd.Flags().StringVarP(&runOutput, "output", "o", "", "output file path")
 
 	genCmd.Flags().StringVar(&genOutDir, "out", "gen", "output directory")
 

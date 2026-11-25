@@ -4,7 +4,9 @@ package build
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -386,5 +388,77 @@ func TestRunUnicodePassphraseAccepted(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("12-rune Unicode passphrase should be accepted: %v", err)
+	}
+}
+
+func TestBuildBinaryProducesExecutable(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "# Report\n\n```go:defs\nimport \"fmt\"\n```\n\n```go:notebook name=test exported(val int)\nval = 42\nfmt.Println(val)\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	binPath := filepath.Join(dir, "report")
+	if runtime.GOOS == "windows" {
+		binPath += ".exe"
+	}
+	err := BuildBinary(notebook, BuildOptions{Output: binPath})
+	if err != nil {
+		t.Fatalf("BuildBinary: %v", err)
+	}
+
+	// Verify the binary exists and is executable.
+	info, err := os.Stat(binPath)
+	if err != nil {
+		t.Fatalf("binary not found: %v", err)
+	}
+	if info.Size() < 1000 {
+		t.Errorf("binary too small: %d bytes", info.Size())
+	}
+
+	// Execute the binary to produce HTML.
+	htmlPath := filepath.Join(dir, "out.html")
+	cmd := exec.Command(binPath, "--format", "html", "-o", htmlPath)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("binary execution failed: %v\noutput: %s", err, out)
+	}
+
+	// Verify HTML output.
+	htmlData, err := os.ReadFile(htmlPath)
+	if err != nil {
+		t.Fatalf("HTML output not written: %v", err)
+	}
+	if !strings.Contains(string(htmlData), "<!DOCTYPE html>") {
+		t.Error("HTML output missing DOCTYPE")
+	}
+}
+
+func TestBuildBinaryNoFormatsRejected(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	err := BuildBinary(notebook, BuildOptions{
+		Output:     filepath.Join(dir, "report"),
+		NoPDF:      true,
+		NoHTML:     true,
+		NoMarkdown: true,
+	})
+	if err == nil {
+		t.Error("expected error when all formats excluded")
+	}
+}
+
+func TestBuildBinaryShortPassphraseRejected(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	err := BuildBinary(notebook, BuildOptions{
+		Output:     filepath.Join(dir, "report"),
+		Passphrase: "short",
+	})
+	if err == nil {
+		t.Error("expected error for short passphrase")
 	}
 }

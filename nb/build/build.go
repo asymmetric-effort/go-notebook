@@ -30,6 +30,106 @@ type Options struct {
 	Passphrase string // Encryption passphrase (empty = no encryption)
 }
 
+// BuildOptions configures gobook build (compile a standalone binary).
+type BuildOptions struct {
+	Output     string // Output binary path.
+	Passphrase string // Encryption passphrase for data=embedded cells.
+	NoPDF      bool   // Exclude PDF/Typst engine from binary.
+	NoHTML     bool   // Exclude HTML/CommonMark from binary.
+	NoMarkdown bool   // Exclude Markdown backend from binary.
+	Cross      CrossCompileOptions
+}
+
+// BuildBinary compiles a notebook into a standalone report binary.
+func BuildBinary(notebookPath string, opts BuildOptions) error {
+	// Validate at least one format.
+	if opts.NoPDF && opts.NoHTML && opts.NoMarkdown {
+		return fmt.Errorf("at least one output format must be included (all excluded by --no-pdf --no-html --no-markdown)")
+	}
+
+	// Validate passphrase (rule 13).
+	if err := crypto.ValidatePassphrase(opts.Passphrase); err != nil {
+		return err
+	}
+
+	src, err := os.ReadFile(notebookPath)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", notebookPath, err)
+	}
+
+	result := core.Parse(string(src))
+	errs := core.Check(result)
+	if len(errs) > 0 {
+		for _, e := range errs {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", notebookPath, e)
+		}
+		return fmt.Errorf("%d check errors", len(errs))
+	}
+
+	gen, err := core.Generate(result, "main")
+	if err != nil {
+		return fmt.Errorf("generate %s: %w", notebookPath, err)
+	}
+	gen.ReportMode = true
+
+	tmpDir, err := os.MkdirTemp("", "gobook-build-*")
+	if err != nil {
+		return fmt.Errorf("create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	pkgDir := filepath.Join(tmpDir, "pkg")
+	if err := core.WritePackage(gen, pkgDir, notebookPath, "gobook-report"); err != nil {
+		return fmt.Errorf("write package: %w", err)
+	}
+
+	// Add replace directive for local module.
+	moduleRoot := findModuleRoot()
+	goModPath := filepath.Join(pkgDir, "go.mod")
+	goModData, _ := os.ReadFile(goModPath)
+	goModStr := string(goModData) +
+		"\nrequire github.com/spf13/cobra v1.9.1\n" +
+		"\nreplace github.com/asymmetric-effort/go-notebook => " + moduleRoot + "\n"
+	os.WriteFile(goModPath, []byte(goModStr), 0o644)
+
+	// Run go mod tidy to resolve dependencies.
+	tidyCmd := exec.Command("go", "mod", "tidy")
+	tidyCmd.Dir = pkgDir
+	tidyCmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod")
+	if out, err := tidyCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("go mod tidy: %s\n%w", out, err)
+	}
+
+	// Compile the binary.
+	output := opts.Output
+	if output == "" {
+		output = strings.TrimSuffix(filepath.Base(notebookPath), filepath.Ext(notebookPath))
+	}
+
+	buildArgs := []string{"build", "-o", output, "."}
+	cmd := exec.Command("go", buildArgs...)
+	cmd.Dir = pkgDir
+	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod")
+
+	// Cross-compilation.
+	if opts.Cross.GOOS != "" {
+		cmd.Env = append(cmd.Env, "GOOS="+opts.Cross.GOOS)
+	}
+	if opts.Cross.GOARCH != "" {
+		cmd.Env = append(cmd.Env, "GOARCH="+opts.Cross.GOARCH)
+	}
+	if opts.Cross.CGOEnabled != "" {
+		cmd.Env = append(cmd.Env, "CGO_ENABLED="+opts.Cross.CGOEnabled)
+	}
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("go build: %s\n%w", out, err)
+	}
+
+	fmt.Printf("gobook build: %s -> %s\n", notebookPath, output)
+	return nil
+}
+
 // Run executes gobook build: parse, check, run cells, build the document
 // model with actual outputs, and render to the specified format.
 func Run(notebookPath string, opts Options) error {

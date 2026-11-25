@@ -106,6 +106,21 @@ func assembleSource(gen GenerateResult, notebookPath string) string {
 	if hasSocket {
 		fmt.Fprintf(&buf, "\t\"github.com/asymmetric-effort/go-notebook/nb/kernel\"\n")
 	}
+	if gen.ReportMode {
+		for _, pkg := range []string{
+			"\"context\"", "\"os\"", "\"fmt\"", "\"time\"", "\"strings\"",
+			"\"github.com/asymmetric-effort/go-notebook/nb/crypto\"",
+			"\"github.com/asymmetric-effort/go-notebook/nb/document\"",
+			"\"github.com/asymmetric-effort/go-notebook/nb/engine\"",
+			"\"github.com/asymmetric-effort/go-notebook/nb/render\"",
+			"\"github.com/spf13/cobra\"",
+		} {
+			if !seen[pkg] {
+				fmt.Fprintf(&buf, "\t%s\n", pkg)
+				seen[pkg] = true
+			}
+		}
+	}
 	seen["nb \"github.com/asymmetric-effort/go-notebook/nb\""] = true
 	// Add imports extracted from defs blocks, skipping duplicates.
 	for _, imp := range defsImports {
@@ -131,6 +146,9 @@ func assembleSource(gen GenerateResult, notebookPath string) string {
 	}
 	if hasSocket {
 		fmt.Fprintf(&buf, "var _ = kernel.DialSocket\nvar _ = log.Fatal\nvar _ = os.Getenv\n\n")
+	}
+	if gen.ReportMode {
+		fmt.Fprintf(&buf, "var _ = context.Background\nvar _ = document.NewDocument\nvar _ = engine.New\nvar _ = render.HTML\nvar _ = cobra.Command{}\nvar _ = crypto.ValidatePassphrase\nvar _ = time.Second\nvar _ = strings.TrimSpace\nvar _ = os.Exit\n\n")
 	}
 
 	// Cell structs, marshal methods, and functions.
@@ -261,6 +279,9 @@ func extractStructFields(structCode string) []string {
 func generateMain(gen GenerateResult, notebookPath string) string {
 	if gen.SocketMode {
 		return generateSocketMain(gen)
+	}
+	if gen.ReportMode {
+		return generateReportMain(gen)
 	}
 	return generateBatchMain(gen, notebookPath)
 }
@@ -431,6 +452,134 @@ func generateSocketMain(gen GenerateResult) string {
 	}
 
 	fmt.Fprintf(&buf, "}\n")
+	return buf.String()
+}
+
+// generateReportMain creates a main() for the standalone report binary.
+// The binary has its own cobra root command with --format, -o, --cell-timeout,
+// and --passphrase flags. It executes cells directly (compiled in) and
+// renders to the requested format.
+func generateReportMain(gen GenerateResult) string {
+	var buf strings.Builder
+
+	// Track named cells for the execution sequence.
+	var namedVars []string
+	for _, cell := range gen.Cells {
+		if cell.StructName != "" {
+			namedVars = append(namedVars, strings.TrimSuffix(cell.StructName, "Cell"))
+		}
+	}
+
+	// runCells function executes all cells and builds the document model.
+	fmt.Fprintf(&buf, "func runCells(cellTimeout time.Duration) (*document.Document, error) {\n")
+	fmt.Fprintf(&buf, "\tctx := nb.NewContext(nil)\n")
+	fmt.Fprintf(&buf, "\t_ = ctx\n")
+	fmt.Fprintf(&buf, "\t_ = cellTimeout\n")
+
+	namedVars = nil
+	for _, cell := range gen.Cells {
+		if cell.StructName != "" {
+			varName := strings.TrimSuffix(cell.StructName, "Cell")
+			params := "ctx"
+			if len(namedVars) > 0 {
+				params = "ctx, " + strings.Join(namedVars, ", ")
+			}
+			fmt.Fprintf(&buf, "\t%s := %s(%s)\n", varName, cell.FuncName, params)
+			fmt.Fprintf(&buf, "\tif %s.err != nil {\n", varName)
+			fmt.Fprintf(&buf, "\t\treturn nil, fmt.Errorf(\"cell %s: %%w\", %s.err)\n", varName, varName)
+			fmt.Fprintf(&buf, "\t}\n")
+			namedVars = append(namedVars, varName)
+		} else {
+			params := "ctx"
+			if len(namedVars) > 0 {
+				params = "ctx, " + strings.Join(namedVars, ", ")
+			}
+			fmt.Fprintf(&buf, "\t%s(%s)\n", cell.FuncName, params)
+		}
+	}
+
+	// Build document from display output.
+	fmt.Fprintf(&buf, "\tdoc := document.NewDocument()\n")
+	fmt.Fprintf(&buf, "\tfor _, d := range ctx.Displays() {\n")
+	fmt.Fprintf(&buf, "\t\tdoc.AddDisplay(\"\", d.Mime, d.Data)\n")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "\treturn doc, nil\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// main function with cobra.
+	fmt.Fprintf(&buf, "func main() {\n")
+	fmt.Fprintf(&buf, "\tvar format, output, passphrase, passphraseFile, cellTimeout string\n\n")
+	fmt.Fprintf(&buf, "\trootCmd := &cobra.Command{\n")
+	fmt.Fprintf(&buf, "\t\tUse:   \"report\",\n")
+	fmt.Fprintf(&buf, "\t\tShort: \"Generate a report from this notebook\",\n")
+	fmt.Fprintf(&buf, "\t\tSilenceUsage: true,\n")
+	fmt.Fprintf(&buf, "\t\tSilenceErrors: true,\n")
+	fmt.Fprintf(&buf, "\t\tRunE: func(cmd *cobra.Command, args []string) error {\n")
+
+	// Passphrase validation (rule 13).
+	fmt.Fprintf(&buf, "\t\t\tpass := passphrase\n")
+	fmt.Fprintf(&buf, "\t\t\tif passphraseFile != \"\" {\n")
+	fmt.Fprintf(&buf, "\t\t\t\tp, err := crypto.ReadPassphraseFromFile(passphraseFile)\n")
+	fmt.Fprintf(&buf, "\t\t\t\tif err != nil { return err }\n")
+	fmt.Fprintf(&buf, "\t\t\t\tpass = p\n")
+	fmt.Fprintf(&buf, "\t\t\t}\n")
+	fmt.Fprintf(&buf, "\t\t\tif pass != \"\" {\n")
+	fmt.Fprintf(&buf, "\t\t\t\tif err := crypto.ValidatePassphrase(pass); err != nil { return err }\n")
+	fmt.Fprintf(&buf, "\t\t\t}\n")
+	fmt.Fprintf(&buf, "\t\t\t_ = pass\n\n")
+
+	// Cell timeout.
+	fmt.Fprintf(&buf, "\t\t\ttimeout := 5 * time.Minute\n")
+	fmt.Fprintf(&buf, "\t\t\tif cellTimeout != \"\" {\n")
+	fmt.Fprintf(&buf, "\t\t\t\td, err := time.ParseDuration(cellTimeout)\n")
+	fmt.Fprintf(&buf, "\t\t\t\tif err != nil { return fmt.Errorf(\"invalid timeout: %%w\", err) }\n")
+	fmt.Fprintf(&buf, "\t\t\t\ttimeout = d\n")
+	fmt.Fprintf(&buf, "\t\t\t}\n\n")
+
+	// Run cells.
+	fmt.Fprintf(&buf, "\t\t\tdoc, err := runCells(timeout)\n")
+	fmt.Fprintf(&buf, "\t\t\tif err != nil { return err }\n\n")
+
+	// Render.
+	fmt.Fprintf(&buf, "\t\t\tswitch strings.ToLower(format) {\n")
+	fmt.Fprintf(&buf, "\t\t\tcase \"html\":\n")
+	fmt.Fprintf(&buf, "\t\t\t\tout := render.HTML(doc, \"report\")\n")
+	fmt.Fprintf(&buf, "\t\t\t\tif output == \"\" { output = \"report.html\" }\n")
+	fmt.Fprintf(&buf, "\t\t\t\treturn os.WriteFile(output, []byte(out), 0o644)\n")
+	fmt.Fprintf(&buf, "\t\t\tcase \"md\", \"markdown\":\n")
+	fmt.Fprintf(&buf, "\t\t\t\tout := render.Markdown(doc)\n")
+	fmt.Fprintf(&buf, "\t\t\t\tif output == \"\" { output = \"report.md\" }\n")
+	fmt.Fprintf(&buf, "\t\t\t\treturn os.WriteFile(output, []byte(out), 0o644)\n")
+	fmt.Fprintf(&buf, "\t\t\tcase \"pdf\":\n")
+	fmt.Fprintf(&buf, "\t\t\t\ttypstSrc := render.Typst(doc)\n")
+	fmt.Fprintf(&buf, "\t\t\t\tctx := context.Background()\n")
+	fmt.Fprintf(&buf, "\t\t\t\teng, err := engine.New(ctx)\n")
+	fmt.Fprintf(&buf, "\t\t\t\tif err != nil { return fmt.Errorf(\"start typst engine: %%w\", err) }\n")
+	fmt.Fprintf(&buf, "\t\t\t\tdefer eng.Close(ctx)\n")
+	fmt.Fprintf(&buf, "\t\t\t\tpdfBytes, err := eng.Compile(ctx, typstSrc, \"pdf\")\n")
+	fmt.Fprintf(&buf, "\t\t\t\tif err != nil { return fmt.Errorf(\"compile pdf: %%w\", err) }\n")
+	fmt.Fprintf(&buf, "\t\t\t\tif output == \"\" { output = \"report.pdf\" }\n")
+	fmt.Fprintf(&buf, "\t\t\t\treturn os.WriteFile(output, pdfBytes, 0o644)\n")
+	fmt.Fprintf(&buf, "\t\t\tdefault:\n")
+	fmt.Fprintf(&buf, "\t\t\t\treturn fmt.Errorf(\"unknown format %%q (use html, pdf, or md)\", format)\n")
+	fmt.Fprintf(&buf, "\t\t\t}\n")
+	fmt.Fprintf(&buf, "\t\t},\n")
+	fmt.Fprintf(&buf, "\t}\n\n")
+
+	// Flags.
+	fmt.Fprintf(&buf, "\trootCmd.Flags().StringVar(&format, \"format\", \"html\", \"output format: html, pdf, md\")\n")
+	fmt.Fprintf(&buf, "\trootCmd.Flags().StringVarP(&output, \"output\", \"o\", \"\", \"output file path\")\n")
+	fmt.Fprintf(&buf, "\trootCmd.Flags().StringVar(&passphrase, \"passphrase\", \"\", \"decryption passphrase\")\n")
+	fmt.Fprintf(&buf, "\trootCmd.Flags().StringVar(&passphraseFile, \"passphrase-file\", \"\", \"read passphrase from file\")\n")
+	fmt.Fprintf(&buf, "\trootCmd.Flags().StringVar(&cellTimeout, \"cell-timeout\", \"\", \"per-cell timeout (e.g. 30s, 2m)\")\n")
+	fmt.Fprintf(&buf, "\trootCmd.MarkFlagsMutuallyExclusive(\"passphrase\", \"passphrase-file\")\n\n")
+
+	fmt.Fprintf(&buf, "\tif err := rootCmd.Execute(); err != nil {\n")
+	fmt.Fprintf(&buf, "\t\tfmt.Fprintf(os.Stderr, \"Error: %%v\\n\", err)\n")
+	fmt.Fprintf(&buf, "\t\tos.Exit(1)\n")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "}\n")
+
 	return buf.String()
 }
 
