@@ -83,6 +83,8 @@ func markdownToTypst(md string) string {
 	var result []string
 	inCodeBlock := false
 
+	inTable := false
+
 	for _, line := range lines {
 		// Fenced code blocks pass through verbatim.
 		if strings.HasPrefix(strings.TrimSpace(line), "```") {
@@ -97,6 +99,48 @@ func markdownToTypst(md string) string {
 		}
 		if inCodeBlock {
 			result = append(result, line)
+			continue
+		}
+
+		// Indented code blocks (4 spaces or 1 tab).
+		if strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "\t") {
+			trimmed := line
+			if strings.HasPrefix(trimmed, "    ") {
+				trimmed = trimmed[4:]
+			} else {
+				trimmed = trimmed[1:]
+			}
+			result = append(result, fmt.Sprintf("#raw(\"%s\")", strings.ReplaceAll(trimmed, "\"", "\\\"")))
+			continue
+		}
+
+		// Tables: pipe-delimited rows.
+		if strings.Contains(line, "|") && strings.TrimSpace(line) != "" {
+			cells := splitTableRow(line)
+			if len(cells) > 0 {
+				// Skip separator rows (---).
+				if isTableSeparator(line) {
+					continue
+				}
+				if !inTable {
+					result = append(result, fmt.Sprintf("#table(columns: %d,", len(cells)))
+					inTable = true
+				}
+				for _, cell := range cells {
+					result = append(result, fmt.Sprintf("  [%s],", typstInline(strings.TrimSpace(cell))))
+				}
+				continue
+			}
+		}
+		if inTable && !strings.Contains(line, "|") {
+			result = append(result, ")")
+			inTable = false
+		}
+
+		// Hard line breaks (two trailing spaces or backslash).
+		if strings.HasSuffix(line, "  ") || strings.HasSuffix(line, "\\") {
+			cleaned := strings.TrimRight(line, " \\")
+			result = append(result, typstInline(cleaned)+" \\")
 			continue
 		}
 
@@ -134,7 +178,36 @@ func markdownToTypst(md string) string {
 		}
 	}
 
+	if inTable {
+		result = append(result, ")")
+	}
+
 	return strings.Join(result, "\n")
+}
+
+// splitTableRow splits a Markdown table row into cells.
+func splitTableRow(line string) []string {
+	line = strings.TrimSpace(line)
+	if strings.HasPrefix(line, "|") {
+		line = line[1:]
+	}
+	if strings.HasSuffix(line, "|") {
+		line = line[:len(line)-1]
+	}
+	if line == "" {
+		return nil
+	}
+	return strings.Split(line, "|")
+}
+
+// isTableSeparator checks if a line is a table separator (e.g., |---|---|).
+func isTableSeparator(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	trimmed = strings.ReplaceAll(trimmed, "|", "")
+	trimmed = strings.ReplaceAll(trimmed, "-", "")
+	trimmed = strings.ReplaceAll(trimmed, ":", "")
+	trimmed = strings.TrimSpace(trimmed)
+	return trimmed == ""
 }
 
 // typstInline converts inline Markdown elements to Typst: emphasis, strong,
@@ -149,6 +222,8 @@ func typstInline(text string) string {
 	text = typstImageRe.ReplaceAllString(text, "#image(\"${2}\")")
 	// Links: [text](url) -> #link("url")[text]
 	text = typstLinkRe.ReplaceAllString(text, "#link(\"${2}\")[${1}]")
+	// Autolinks: <url> -> #link("url")
+	text = typstAutolinkRe.ReplaceAllString(text, "#link(\"${1}\")")
 	// Strong must be before emphasis (** before *).
 	text = typstStrongStarRe.ReplaceAllString(text, "*${1}*")
 	text = typstStrongUnderRe.ReplaceAllString(text, "*${1}*")
@@ -156,6 +231,7 @@ func typstInline(text string) string {
 }
 
 var typstCodeSpanRe = regexp.MustCompile("`[^`]+`")
+var typstAutolinkRe = regexp.MustCompile(`<(https?://[^>]+)>`)
 var typstStrongStarRe = regexp.MustCompile(`\*\*([^*]+)\*\*`)
 var typstStrongUnderRe = regexp.MustCompile(`__([^_]+)__`)
 var typstLinkRe = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
