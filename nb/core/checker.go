@@ -145,6 +145,9 @@ func checkCell(b Block, attrs CellAttrs, upstream []checkerCellInfo) []error {
 	// Rule 6: No assignment to another cell's field, and no taking its address.
 	checkCellFieldMutation(b, upstream, &errs)
 
+	// Rule 7: Exported values must be serializable (best effort).
+	checkSerializableExports(b, attrs, &errs)
+
 	// Rule 8: Files opened only through ctx.Open and declared in reads.
 	// Rule 9: Files created only through ctx.Create and declared in writes.
 	// Rule 11: Secrets read only through ctx.Secret and declared in secrets.
@@ -322,6 +325,37 @@ func checkProse(b Block, opts CheckOptions) []error {
 func isWebURL(ref string) bool {
 	lower := strings.ToLower(ref)
 	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")
+}
+
+// nonSerializableTypes are type keywords that cannot be serialized by
+// encoding/gob. This is a best-effort check on the type string from
+// the exported field declaration.
+var nonSerializableTypes = []string{"chan", "func", "unsafe.Pointer"}
+
+// checkSerializableExports enforces rule 7: exported values must be
+// serializable. Rejects fields with chan, func, or unsafe.Pointer types.
+func checkSerializableExports(b Block, attrs CellAttrs, errs *[]error) {
+	if attrs.Exported == "" {
+		return
+	}
+	fields := parseExportedFields(attrs.Exported)
+	for _, field := range fields {
+		parts := strings.Fields(field)
+		if len(parts) < 2 {
+			continue
+		}
+		fieldName := parts[0]
+		fieldType := strings.Join(parts[1:], " ")
+		for _, bad := range nonSerializableTypes {
+			if strings.Contains(fieldType, bad) {
+				*errs = append(*errs, &CheckError{
+					Line:    b.StartPos.Line,
+					Message: fmt.Sprintf("exported field %q has non-serializable type %q (rule 7). Values must be serializable for notebook mode.", fieldName, fieldType),
+				})
+				break
+			}
+		}
+	}
 }
 
 // checkCellReferences enforces rule 5: cell bodies may only reference named
