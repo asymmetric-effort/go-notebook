@@ -753,3 +753,81 @@ func TestSocketMainFirstCellNoUpstreams(t *testing.T) {
 	}
 	t.Log("first cell socket mode compiled successfully")
 }
+
+func TestGenerateReportMain(t *testing.T) {
+	gen := GenerateResult{
+		PackageName: "main",
+		ReportMode:  true,
+		Cells: []GeneratedCell{
+			{StructName: "testCell", FuncName: "runTest",
+				StructCode: "type testCell struct {\n\terr error\n\tval int\n}",
+				FuncCode:   "func runTest(ctx *nb.Context) (out testCell) {\n\treturn\n}"},
+		},
+	}
+	src := assembleSource(gen, "test.md")
+	if !strings.Contains(src, "cobra.Command") {
+		t.Error("report main should use cobra")
+	}
+	if !strings.Contains(src, "runCells") {
+		t.Error("report main should have runCells function")
+	}
+	if !strings.Contains(src, "\"format\"") {
+		t.Error("report main should have format flag")
+	}
+	if !strings.Contains(src, "render.HTML") {
+		t.Error("report main should reference render.HTML")
+	}
+	if !strings.Contains(src, "render.Markdown") {
+		t.Error("report main should reference render.Markdown")
+	}
+	if !strings.Contains(src, "engine.New") {
+		t.Error("report main should reference engine.New for PDF")
+	}
+	if !strings.Contains(src, "crypto.ValidatePassphrase") {
+		t.Error("report main should validate passphrase")
+	}
+}
+
+func TestReportMainCompiles(t *testing.T) {
+	src := "```go:defs\nimport \"fmt\"\n```\n\n```go:notebook name=test exported(val int)\nval = 42\nfmt.Println(val)\n```\n"
+	result := Parse(src)
+	gen, err := Generate(result, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen.ReportMode = true
+
+	dir := t.TempDir()
+	pkgDir := filepath.Join(dir, "reportpkg")
+	err = WritePackage(gen, pkgDir, "test.md", "reportpkg")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	moduleRoot := findModuleRoot(t)
+	goMod := "module reportpkg\n\ngo 1.27.4\n\n" +
+		"require github.com/asymmetric-effort/go-notebook v0.0.0\n" +
+		"require github.com/spf13/cobra v1.9.1\n\n" +
+		"replace github.com/asymmetric-effort/go-notebook => " + moduleRoot + "\n"
+	os.WriteFile(filepath.Join(pkgDir, "go.mod"), []byte(goMod), 0o644)
+
+	// Run go mod tidy.
+	tidyCmd := exec.Command("go", "mod", "tidy")
+	tidyCmd.Dir = pkgDir
+	tidyCmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod")
+	if out, err := tidyCmd.CombinedOutput(); err != nil {
+		genSrc, _ := os.ReadFile(filepath.Join(pkgDir, "main.go"))
+		t.Fatalf("go mod tidy failed:\n%s\n---generated---\n%s", out, genSrc)
+	}
+
+	// Verify it compiles.
+	buildCmd := exec.Command("go", "build", "-o", filepath.Join(dir, "reporttest"+exeSuffix()), ".")
+	buildCmd.Dir = pkgDir
+	buildCmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod")
+	out, err := buildCmd.CombinedOutput()
+	if err != nil {
+		genSrc, _ := os.ReadFile(filepath.Join(pkgDir, "main.go"))
+		t.Fatalf("go build failed:\n%s\n---generated---\n%s", out, genSrc)
+	}
+	t.Log("report mode package compiled successfully")
+}

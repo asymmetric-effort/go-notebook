@@ -47,6 +47,7 @@ type GenerateResult struct {
 	EmbeddedFiles []EmbeddedFileData // Encrypted data for reads(name:embed) files.
 	SocketMode    bool               // Generate socket-aware main for notebook mode.
 	TargetCell    string             // Target cell name for socket mode.
+	ReportMode    bool               // Generate report binary main with cobra and render backends.
 }
 
 // Generate produces Go source code from parsed notebook blocks.
