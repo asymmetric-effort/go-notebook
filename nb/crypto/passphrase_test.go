@@ -5,6 +5,7 @@ package crypto
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -22,8 +23,19 @@ func TestValidatePassphraseTooShort(t *testing.T) {
 }
 
 func TestValidatePassphraseEmpty(t *testing.T) {
-	if err := ValidatePassphrase(""); err == nil {
-		t.Error("empty should fail")
+	// Empty passphrase means no encryption — always valid.
+	if err := ValidatePassphrase(""); err != nil {
+		t.Errorf("empty passphrase should pass (no encryption): %v", err)
+	}
+}
+
+func TestValidatePassphraseRule13InError(t *testing.T) {
+	err := ValidatePassphrase("short")
+	if err == nil {
+		t.Fatal("short passphrase should fail")
+	}
+	if !strings.Contains(err.Error(), "rule 13") {
+		t.Errorf("error should reference rule 13: %v", err)
 	}
 }
 

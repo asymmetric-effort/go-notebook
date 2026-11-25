@@ -325,3 +325,66 @@ func TestBuildDocumentStripsOutput(t *testing.T) {
 		t.Error("new output should be present")
 	}
 }
+
+func TestRunShortPassphraseRejected(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	err := Run(notebook, Options{
+		Format:     "html",
+		Output:     filepath.Join(dir, "out.html"),
+		Passphrase: "short",
+	})
+	if err == nil {
+		t.Fatal("short passphrase should be rejected")
+	}
+	if !strings.Contains(err.Error(), "rule 13") {
+		t.Errorf("error should reference rule 13: %v", err)
+	}
+}
+
+func TestRunExactlyMinPassphraseAccepted(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	err := Run(notebook, Options{
+		Format:     "html",
+		Output:     filepath.Join(dir, "out.html"),
+		Passphrase: "exactly12chr",
+	})
+	if err != nil {
+		t.Fatalf("12-char passphrase should be accepted: %v", err)
+	}
+}
+
+func TestRunEmptyPassphraseAccepted(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	err := Run(notebook, Options{
+		Format:     "html",
+		Output:     filepath.Join(dir, "out.html"),
+		Passphrase: "",
+	})
+	if err != nil {
+		t.Fatalf("empty passphrase should be accepted: %v", err)
+	}
+}
+
+func TestRunUnicodePassphraseAccepted(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	err := Run(notebook, Options{
+		Format:     "html",
+		Output:     filepath.Join(dir, "out.html"),
+		Passphrase: "日本語テスト用パスワード十二", // 12 runes
+	})
+	if err != nil {
+		t.Fatalf("12-rune Unicode passphrase should be accepted: %v", err)
+	}
+}

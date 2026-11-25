@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/asymmetric-effort/go-notebook/nb/core"
+	"github.com/asymmetric-effort/go-notebook/nb/crypto"
 	"github.com/asymmetric-effort/go-notebook/nb/document"
 	"github.com/asymmetric-effort/go-notebook/nb/engine"
 	"github.com/asymmetric-effort/go-notebook/nb/kernel"
@@ -32,6 +33,11 @@ type Options struct {
 // Run executes gobook build: parse, check, run cells, build the document
 // model with actual outputs, and render to the specified format.
 func Run(notebookPath string, opts Options) error {
+	// Validate passphrase length (rule 13).
+	if err := crypto.ValidatePassphrase(opts.Passphrase); err != nil {
+		return err
+	}
+
 	src, err := os.ReadFile(notebookPath)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", notebookPath, err)
