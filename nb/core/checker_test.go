@@ -180,3 +180,83 @@ func TestCheckErrorLine(t *testing.T) {
 		t.Errorf("Line = %d, want 3", ce.Line)
 	}
 }
+
+func TestCheckRule7ChanType(t *testing.T) {
+	src := "```go:notebook name=test exported(ch chan int)\n_ = ch\n```\n"
+	result := Parse(src)
+	errs := Check(result)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "rule 7") && strings.Contains(e.Error(), "chan") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected rule 7 error for chan type, got: %v", errs)
+	}
+}
+
+func TestCheckRule7FuncType(t *testing.T) {
+	src := "```go:notebook name=test exported(fn func())\n_ = fn\n```\n"
+	result := Parse(src)
+	errs := Check(result)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "rule 7") && strings.Contains(e.Error(), "func") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected rule 7 error for func type, got: %v", errs)
+	}
+}
+
+func TestCheckRule7UnsafePointer(t *testing.T) {
+	src := "```go:notebook name=test exported(p unsafe.Pointer)\n_ = p\n```\n"
+	result := Parse(src)
+	errs := Check(result)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "rule 7") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected rule 7 error for unsafe.Pointer, got: %v", errs)
+	}
+}
+
+func TestCheckRule7ReceiveChan(t *testing.T) {
+	src := "```go:notebook name=test exported(ch <-chan int)\n_ = ch\n```\n"
+	result := Parse(src)
+	errs := Check(result)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "rule 7") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected rule 7 error for <-chan type, got: %v", errs)
+	}
+}
+
+func TestCheckRule7SerializableTypesPass(t *testing.T) {
+	types := []string{
+		"val int",
+		"msg string",
+		"rows []float64",
+		"m map[string]int",
+		"data []byte",
+	}
+	for _, field := range types {
+		src := "```go:notebook name=test exported(" + field + ")\n_ = val\n```\n"
+		result := Parse(src)
+		errs := Check(result)
+		for _, e := range errs {
+			if strings.Contains(e.Error(), "rule 7") {
+				t.Errorf("type %q should be serializable, got rule 7 error: %v", field, e)
+			}
+		}
+	}
+}
