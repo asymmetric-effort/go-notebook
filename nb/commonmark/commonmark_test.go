@@ -496,3 +496,52 @@ func TestMixedContent(t *testing.T) {
 		t.Error("missing code block")
 	}
 }
+
+func TestBlockquoteFollowedByNonBlockquote(t *testing.T) {
+	// A blockquote line followed by a non-blockquote line triggers the break.
+	src := "> quoted\nnormal paragraph"
+	got := ToHTML(src)
+	if !strings.Contains(got, "<blockquote>") {
+		t.Error("should have blockquote")
+	}
+	if !strings.Contains(got, "normal paragraph") {
+		t.Error("should have paragraph after blockquote")
+	}
+}
+
+func TestHTMLBlockBreakOnBlankLine(t *testing.T) {
+	// An HTML block ending with a blank line triggers the break.
+	src := "<div class=\"test\">\nsome content\n\nmore content"
+	got := ToHTML(src)
+	if !strings.Contains(got, "<div") {
+		t.Error("should contain HTML block")
+	}
+}
+
+func TestCodeSpanStripsSpaces(t *testing.T) {
+	// A code span with spaces on both ends: ` code ` -> strips outer spaces.
+	got := ToHTML("text ` code ` more")
+	if !strings.Contains(got, "<code>code</code>") {
+		t.Errorf("code span should strip outer spaces: %q", got)
+	}
+}
+
+func TestFindAutolinkNoClosingAngle(t *testing.T) {
+	// findAutolink with no closing > returns -1 (falls through to end).
+	src := "text <notclosed"
+	got := ToHTML(src)
+	// Should not crash; autolink won't be inserted.
+	_ = got
+}
+
+func TestOrderedListContinuationLine(t *testing.T) {
+	// An ordered list item followed by a non-list, non-blank line (continuation path).
+	src := "1. first item\n   continued on next line\n2. second item"
+	got := ToHTML(src)
+	if !strings.Contains(got, "<ol>") {
+		t.Errorf("should have ordered list: %q", got)
+	}
+	if !strings.Contains(got, "continued") {
+		t.Errorf("continuation text should be included: %q", got)
+	}
+}

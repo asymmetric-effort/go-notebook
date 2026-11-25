@@ -442,6 +442,128 @@ func TestIsCtxSecretCallChainedSelector(t *testing.T) {
 	}
 }
 
+func TestIsJavascriptURLVbscript(t *testing.T) {
+	if !IsJavascriptURL("vbscript:msgbox('xss')") {
+		t.Error("vbscript: should be treated as javascript URL")
+	}
+}
+
+func TestIsJavascriptURLDataTextHTML(t *testing.T) {
+	if !IsJavascriptURL("data:text/html,<script>alert(1)</script>") {
+		t.Error("data:text/html should be treated as javascript URL")
+	}
+}
+
+func TestCheckDefsVarWithoutEmbed(t *testing.T) {
+	// A var in go:defs without //go:embed triggers rule 14.
+	src := "```go:defs\nvar x = 1\n```\n"
+	result := Parse(src)
+	errs := Check(result)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "rule 14") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected rule 14 error for var without //go:embed, got: %v", errs)
+	}
+}
+
+func TestValidateSVGXMLInvalid(t *testing.T) {
+	// Create a file with invalid XML to trigger the invalid XML error path.
+	dir := t.TempDir()
+	svgPath := filepath.Join(dir, "bad.svg")
+	os.WriteFile(svgPath, []byte("<svg><unclosed>"), 0o644)
+	err := validateSVGXML(svgPath)
+	if err == nil {
+		t.Error("expected error for invalid SVG XML")
+	}
+	if !strings.Contains(err.Error(), "invalid XML") {
+		t.Errorf("error should mention invalid XML: %v", err)
+	}
+}
+
+func TestCheckSerializableExportsChanType(t *testing.T) {
+	// A cell with a chan-type exported field triggers rule 7.
+	src := "```go:notebook name=test exported(ch chan int)\nch = make(chan int)\n```\n"
+	result := Parse(src)
+	errs := Check(result)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "rule 7") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected rule 7 error for chan exported field, got: %v", errs)
+	}
+}
+
+func TestCheckSerializableExportsFuncType(t *testing.T) {
+	// A cell with a func-type exported field triggers rule 7.
+	src := "```go:notebook name=test exported(fn func())\nfn = func(){}\n```\n"
+	result := Parse(src)
+	errs := Check(result)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "rule 7") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected rule 7 error for func exported field, got: %v", errs)
+	}
+}
+
+func TestIsImportLineAliasedImport(t *testing.T) {
+	// An aliased import: the unused map should contain the alias name.
+	unused := map[string]bool{"myfmt": true}
+	// alias "fmt" — prefix is "myfmt", so name becomes "myfmt"
+	if !isImportLine(`myfmt "fmt"`, unused) {
+		t.Error("aliased import line should return true when alias is in unused map")
+	}
+}
+
+func TestIsImportLineEndEqualsStart(t *testing.T) {
+	// A line that starts and ends with the same quote — end <= start.
+	unused := map[string]bool{"fmt": true}
+	// Single character between first and last quote is the same position.
+	// Use a string where LastIndex == Index (only one quote).
+	if isImportLine(`"`, unused) {
+		t.Error("single quote should return false")
+	}
+}
+
+// TestGenerateReportMainUnnamedCell exercises the else branch in generateReportMain
+// where a cell has no StructName (unnamed/defs cells).
+func TestGenerateReportMainUnnamedCell(t *testing.T) {
+	gen := GenerateResult{
+		PackageName: "main",
+		ReportMode:  true,
+		Cells: []GeneratedCell{
+			// Named cell first.
+			{
+				StructName: "loadCell",
+				FuncName:   "runLoad",
+				StructCode: "type loadCell struct {\n\terr error\n\tval int\n}",
+				FuncCode:   "func runLoad(ctx *nb.Context) (out loadCell) {\n\treturn\n}",
+			},
+			// Unnamed cell (StructName == "") — triggers the else branch.
+			{
+				StructName: "",
+				FuncName:   "runAnon",
+				FuncCode:   "func runAnon(ctx *nb.Context, load loadCell) {\n}",
+			},
+		},
+	}
+	src := generateReportMain(gen)
+	// The unnamed cell should be called without assignment.
+	if !strings.Contains(src, "runAnon(ctx, load)") {
+		t.Errorf("unnamed cell should be called with upstream args, got:\n%s", src)
+	}
+}
+
 // TestWritePackageGoModWriteFail triggers writepackage.go:25 — go.mod write fails
 // when the package directory is read-only.
 func TestWritePackageGoModWriteFail(t *testing.T) {

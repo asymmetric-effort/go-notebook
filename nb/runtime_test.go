@@ -305,6 +305,30 @@ func TestContextChartUnknownType(t *testing.T) {
 	ctx.Chart("not a chart")
 }
 
+func TestContextCreateFileCannotCreate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("path semantics differ on Windows")
+	}
+	dir := t.TempDir()
+	ctx := NewContext(nil)
+	ctx.SetOutputDir(dir)
+
+	// Create a directory at the path where we'd try to create a file.
+	// os.Create on a directory path fails.
+	subDir := filepath.Join(dir, "conflict")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Try to create a file at the same path as the existing directory.
+	_, err := ctx.Create("conflict")
+	if err == nil {
+		t.Error("Create on existing directory should fail")
+	}
+	if !strings.Contains(err.Error(), "create") {
+		t.Errorf("error should mention create: %v", err)
+	}
+}
+
 // Verify fs.File interface satisfaction.
 var _ fs.FS = fstest.MapFS{}
 

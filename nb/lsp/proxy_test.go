@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -198,5 +199,77 @@ func TestNew(t *testing.T) {
 	}
 	if p.sourceMap == nil {
 		t.Error("sourceMap should be initialized")
+	}
+}
+
+func TestReadLSPMessageInvalidContentLength(t *testing.T) {
+	input := "Content-Length: notanumber\r\n\r\n{}"
+	r := bufio.NewReader(strings.NewReader(input))
+	_, err := readLSPMessage(r)
+	if err == nil {
+		t.Error("expected error for invalid Content-Length")
+	}
+}
+
+func TestReadLSPMessageEOF(t *testing.T) {
+	r := bufio.NewReader(strings.NewReader(""))
+	_, err := readLSPMessage(r)
+	if err == nil {
+		t.Error("expected error on EOF")
+	}
+}
+
+func TestReadLSPMessageBodyTruncated(t *testing.T) {
+	// Content-Length says 100 bytes but only 5 are available.
+	input := "Content-Length: 100\r\n\r\nhello"
+	r := bufio.NewReader(strings.NewReader(input))
+	_, err := readLSPMessage(r)
+	if err == nil {
+		t.Error("expected error when body is truncated")
+	}
+}
+
+type errWriter struct{}
+
+func (e errWriter) Write(p []byte) (int, error) {
+	return 0, fmt.Errorf("write error")
+}
+
+func TestWriteLSPMessageError(t *testing.T) {
+	err := writeLSPMessage(errWriter{}, []byte("hello"))
+	if err == nil {
+		t.Error("expected error when write fails")
+	}
+}
+
+func TestForwardWriteError(t *testing.T) {
+	p := New("gopls")
+
+	msg := `{"jsonrpc":"2.0","method":"test","params":{}}`
+	input := fmt.Sprintf("Content-Length: %d\r\n\r\n%s", len(msg), msg)
+
+	// Use a writer that always fails.
+	p.forward(strings.NewReader(input), errWriter{}, true)
+	// Should not panic — it returns when write fails.
+}
+
+func TestTranslatePositionNoChar(t *testing.T) {
+	sm := core.NewSourceMap()
+	sm.Add(1, 1, 1, 1, 10)
+
+	pos := map[string]interface{}{
+		"line": float64(0), // valid
+		// missing "character" — should be a string to fail float64 assertion
+		"character": "not-a-number",
+	}
+	// Should not panic; character not ok means no translation.
+	translatePosition(pos, sm, true)
+}
+
+func TestStartWithBadGoplsPath(t *testing.T) {
+	p := New("/nonexistent/gopls")
+	err := p.Start()
+	if err == nil {
+		t.Error("expected error when gopls binary does not exist")
 	}
 }
