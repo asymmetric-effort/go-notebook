@@ -15,11 +15,15 @@ import (
 const MinPassphraseLength = 12
 
 // ValidatePassphrase checks that a passphrase meets the minimum length
-// requirement (12 Unicode code points, not bytes).
+// requirement (12 Unicode code points, not bytes). An empty passphrase
+// (no encryption) is always valid.
 func ValidatePassphrase(passphrase string) error {
+	if passphrase == "" {
+		return nil
+	}
 	length := utf8.RuneCountInString(passphrase)
 	if length < MinPassphraseLength {
-		return fmt.Errorf("passphrase is %d characters, minimum is %d", length, MinPassphraseLength)
+		return fmt.Errorf("passphrase has %d characters, minimum is %d (rule 13)", length, MinPassphraseLength)
 	}
 	return nil
 }
