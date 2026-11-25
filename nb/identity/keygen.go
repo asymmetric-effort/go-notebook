@@ -5,6 +5,7 @@
 package identity
 
 import (
+	"crypto/hpke"
 	"crypto/mldsa"
 	"crypto/sha256"
 	"encoding/pem"
@@ -95,6 +96,77 @@ func ReadPrivateKey(path string) (*mldsa.PrivateKey, error) {
 	priv, err := mldsa.NewPrivateKey(mldsa.MLDSA65(), block.Bytes)
 	if err != nil {
 		return nil, fmt.Errorf("parse private key: %w", err)
+	}
+	return priv, nil
+}
+
+// GenerateEncryptionKeys generates an HPKE MLKEM768X25519 key pair
+// for recipient-mode encryption.
+func GenerateEncryptionKeys() (hpke.PublicKey, hpke.PrivateKey, error) {
+	kem := hpke.MLKEM768X25519()
+	priv, err := kem.GenerateKey()
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate encryption key: %w", err)
+	}
+	return priv.PublicKey(), priv, nil
+}
+
+// WriteEncryptionKeys writes HPKE encryption keys to PEM files.
+func WriteEncryptionKeys(pub hpke.PublicKey, priv hpke.PrivateKey, baseName string) error {
+	pubPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "GOBOOK HPKE PUBLIC KEY",
+		Bytes: pub.Bytes(),
+	})
+	if err := os.WriteFile(baseName+".enc.pub", pubPEM, 0o644); err != nil {
+		return fmt.Errorf("write encryption public key: %w", err)
+	}
+
+	privBytes, err := priv.Bytes()
+	if err != nil {
+		return fmt.Errorf("serialize encryption private key: %w", err)
+	}
+	privPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "GOBOOK HPKE PRIVATE KEY",
+		Bytes: privBytes,
+	})
+	if err := os.WriteFile(baseName+".enc.key", privPEM, 0o600); err != nil {
+		return fmt.Errorf("write encryption private key: %w", err)
+	}
+	return nil
+}
+
+// ReadEncryptionPublicKey reads an HPKE public key from a PEM file.
+func ReadEncryptionPublicKey(path string) (hpke.PublicKey, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read encryption public key: %w", err)
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, fmt.Errorf("no PEM block found in %s", path)
+	}
+	kem := hpke.MLKEM768X25519()
+	pub, err := kem.NewPublicKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse encryption public key: %w", err)
+	}
+	return pub, nil
+}
+
+// ReadEncryptionPrivateKey reads an HPKE private key from a PEM file.
+func ReadEncryptionPrivateKey(path string) (hpke.PrivateKey, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read encryption private key: %w", err)
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, fmt.Errorf("no PEM block found in %s", path)
+	}
+	kem := hpke.MLKEM768X25519()
+	priv, err := kem.NewPrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse encryption private key: %w", err)
 	}
 	return priv, nil
 }
