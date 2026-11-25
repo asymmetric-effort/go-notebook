@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/asymmetric-effort/go-notebook/nb/build"
 	"github.com/asymmetric-effort/go-notebook/nb/core"
 )
 
@@ -245,5 +246,94 @@ func TestResolvePassphraseFileMissing(t *testing.T) {
 	_, err := resolvePassphrase(false, "/nonexistent/pass.txt")
 	if err == nil {
 		t.Error("expected error for missing file")
+	}
+}
+
+func TestCmdBuild(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.md")
+	src := "# Report\n\n```go:notebook name=test exported(val int)\nval = 42\n```\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// cmdBuild delegates to build.Run (not build.BuildBinary).
+	// We call it directly with a valid path; it should succeed.
+	outPath := filepath.Join(dir, "out.html")
+	err := cmdBuild(path, build.Options{Format: "html", Output: outPath})
+	if err != nil {
+		t.Fatalf("cmdBuild = %v", err)
+	}
+	if _, err := os.Stat(outPath); err != nil {
+		t.Error("cmdBuild should produce output file")
+	}
+}
+
+func TestCmdBuildMissingFile(t *testing.T) {
+	err := cmdBuild("/nonexistent/file.md", build.Options{Format: "html"})
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
+func TestCmdFmtMissingFile(t *testing.T) {
+	err := cmdFmt("/nonexistent/file.md")
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
+func TestCmdGenMissingFile(t *testing.T) {
+	err := cmdGen("/nonexistent/file.md", t.TempDir())
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
+func TestCmdVetMissingFile(t *testing.T) {
+	err := cmdVet("/nonexistent/file.md")
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
+func TestCmdVetCheckErrors(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.md")
+	// exported without name triggers checker rule violation
+	src := "```go:notebook exported(val int)\nval = 1\n```\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := cmdVet(path)
+	if err == nil {
+		t.Error("expected error for exported without name")
+	}
+}
+
+func TestCmdRunMissingFile(t *testing.T) {
+	err := cmdRun("/nonexistent/file.md")
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
+func TestCmdRunCheckErrors(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.md")
+	// exported without name triggers checker rule violation
+	src := "```go:notebook exported(val int)\nval = 1\n```\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := cmdRun(path)
+	if err == nil {
+		t.Error("expected error for check errors")
+	}
+}
+
+func TestFindModuleRootFromPath(t *testing.T) {
+	root := findModuleRootFromPath("/some/path/test.md")
+	if root == "" {
+		t.Error("findModuleRootFromPath should return non-empty")
 	}
 }

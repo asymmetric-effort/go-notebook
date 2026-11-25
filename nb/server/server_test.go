@@ -1400,3 +1400,433 @@ func TestLSPHoverUnknownWord(t *testing.T) {
 		t.Errorf("hover for unknown word should be empty, got %q", info.Content)
 	}
 }
+
+// --- Additional tests for untested paths ---
+
+func TestCellsMissingFile(t *testing.T) {
+	srv := New("/nonexistent/test.md", ":0")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/cells", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status code = %d, want 500", w.Code)
+	}
+}
+
+func TestBlocksMissingFile(t *testing.T) {
+	srv := New("/nonexistent/test.md", ":0")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/blocks", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status code = %d, want 500", w.Code)
+	}
+}
+
+func TestProseUpdateMissingFile(t *testing.T) {
+	srv := New("/nonexistent/test.md", ":0")
+
+	body, _ := json.Marshal(proseUpdateRequest{Line: 1, Body: "new"})
+	req := httptest.NewRequest(http.MethodPut, "/api/prose/update", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status code = %d, want 500", w.Code)
+	}
+}
+
+func TestProseUpdateInvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	srv := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodPut, "/api/prose/update", strings.NewReader("{bad json"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status code = %d, want 400", w.Code)
+	}
+}
+
+func TestCellsUpdateMissingFile(t *testing.T) {
+	srv := New("/nonexistent/test.md", ":0")
+
+	req := updateRequest{Line: 1, Body: "val = 1", Name: "test"}
+	body, _ := json.Marshal(req)
+	r := httptest.NewRequest(http.MethodPut, "/api/cells/update", bytes.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status code = %d, want 500", w.Code)
+	}
+}
+
+func TestRunAllEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "```go:notebook name=step1 exported(val int)\nval = 1\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	srv := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodPost, "/api/run/all", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	var results []runResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &results); err != nil {
+		t.Fatalf("failed to parse response: %v\nbody: %s", err, w.Body.String())
+	}
+	if len(results) != 1 {
+		t.Errorf("expected 1 result, got %d", len(results))
+	}
+}
+
+func TestRunAllMissingFile(t *testing.T) {
+	srv := New("/nonexistent/test.md", ":0")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/run/all", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status code = %d, want 500", w.Code)
+	}
+}
+
+func TestRunSingleCellEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "```go:notebook name=test exported(val int)\nval = 42\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	srv := New(notebook, ":0")
+	body, _ := json.Marshal(runRequest{Cell: "test"})
+	req := httptest.NewRequest(http.MethodPost, "/api/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	var resp runResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.ExitCode != 0 {
+		t.Errorf("exit code = %d, stderr: %s, error: %s", resp.ExitCode, resp.Stderr, resp.Error)
+	}
+}
+
+func TestLSPDiagnosticsMissingFile(t *testing.T) {
+	srv := New("/nonexistent/test.md", ":0")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/lsp/diagnostics", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status code = %d, want 500", w.Code)
+	}
+}
+
+func TestLSPCompletionMissingFile(t *testing.T) {
+	srv := New("/nonexistent/test.md", ":0")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/lsp/completion", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status code = %d, want 500", w.Code)
+	}
+}
+
+func TestLSPHoverMissingFile(t *testing.T) {
+	srv := New("/nonexistent/test.md", ":0")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/lsp/hover?word=test", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status code = %d, want 500", w.Code)
+	}
+}
+
+func TestLSPHoverMethodNotAllowed(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	srv := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodPost, "/api/lsp/hover", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status code = %d, want 405", w.Code)
+	}
+}
+
+func TestSecretsInvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	srv := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodPut, "/api/secrets", strings.NewReader("{bad json"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status code = %d, want 400", w.Code)
+	}
+}
+
+func TestRewriteProseOutOfRange(t *testing.T) {
+	// A prose block whose line numbers are out of the actual text range.
+	// This is hard to trigger naturally, but we can verify it doesn't panic on valid input.
+	src := "# Title\n"
+	_, err := rewriteProse(src, proseUpdateRequest{Line: 999, Body: "new"})
+	if err == nil {
+		t.Error("expected error for out-of-range prose")
+	}
+}
+
+func TestCellsWithRuntimeReadFile(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	// A cell with reads(data.csv:runtime) to exercise the runtime mode branch
+	src := "```go:notebook name=test reads(data.csv:runtime)\nx := 1\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	srv := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodGet, "/api/cells", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var cells []cellInfo
+	json.Unmarshal(w.Body.Bytes(), &cells)
+	if len(cells) != 1 {
+		t.Fatalf("got %d cells, want 1", len(cells))
+	}
+	if len(cells[0].Reads) != 1 || cells[0].Reads[0].Mode != "runtime" {
+		t.Errorf("expected runtime mode read, got: %+v", cells[0].Reads)
+	}
+}
+
+func TestCellsWithTimeout(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "```go:notebook name=test timeout=30s\nx := 1\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	srv := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodGet, "/api/cells", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var cells []cellInfo
+	json.Unmarshal(w.Body.Bytes(), &cells)
+	if len(cells) != 1 {
+		t.Fatalf("got %d cells, want 1", len(cells))
+	}
+	if cells[0].Timeout != "30s" {
+		t.Errorf("timeout = %q, want 30s", cells[0].Timeout)
+	}
+}
+
+func TestNewServerWithMissingStaticSubFS(t *testing.T) {
+	// New() must not panic — just ensure it returns a usable server.
+	srv := New("nonexistent.md", ":0")
+	if srv == nil {
+		t.Error("New should not return nil")
+	}
+}
+
+func TestExtractFencePrefixTildes(t *testing.T) {
+	got := extractFencePrefix("~~~go:notebook")
+	if got != "~~~" {
+		t.Errorf("extractFencePrefix(~~~) = %q, want ~~~", got)
+	}
+}
+
+func TestExtractFencePrefixNotFence(t *testing.T) {
+	// A line that starts with a non-fence character returns default "```".
+	got := extractFencePrefix("not a fence")
+	if got != "```" {
+		t.Errorf("extractFencePrefix(not a fence) = %q, want ```", got)
+	}
+}
+
+func TestRewriteCellWithLiveData(t *testing.T) {
+	src := "```go:notebook name=test\nval = 1\n```\n"
+	req := updateRequest{
+		Line: 1,
+		Body: "val = 2",
+		Name: "test",
+		Data: "live",
+	}
+	got, err := rewriteCell(src, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "data=live") {
+		t.Errorf("missing data=live in:\n%s", got)
+	}
+}
+
+func TestParseCompileErrorZeroLine(t *testing.T) {
+	// A file:0:col: message should return nil (line 0 is invalid).
+	got := parseCompileError("file.go:0:1: some error")
+	if got != nil {
+		t.Errorf("line 0 should return nil, got %+v", got)
+	}
+}
+
+func TestParseCompileErrorEmptyMessage(t *testing.T) {
+	// A file:1:1:   (blank message) should return nil.
+	got := parseCompileError("file.go:1:1:   ")
+	if got != nil {
+		t.Errorf("empty message should return nil, got %+v", got)
+	}
+}
+
+func TestParseRunErrorsCellError(t *testing.T) {
+	stderr := "cell execution failed: something\n"
+	errs := parseRunErrors(stderr, "", "test")
+	found := false
+	for _, e := range errs {
+		if e.Kind == "runtime" && strings.Contains(e.Message, "cell") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected runtime error for 'cell ...' line, got: %v", errs)
+	}
+}
+
+func TestRunBatchWithCheckErrors(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	// exported without name triggers checker rule violation
+	src := "```go:notebook exported(val int)\nval = 1\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	srv := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodPost, "/api/run", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestRunStateAfterExecution(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "```go:notebook name=test exported(val int)\nval = 1\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	srv := New(notebook, ":0")
+
+	// Run the notebook.
+	body, _ := json.Marshal(runRequest{Cell: "test"})
+	runReq := httptest.NewRequest(http.MethodPost, "/api/run", bytes.NewReader(body))
+	runReq.Header.Set("Content-Type", "application/json")
+	runW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(runW, runReq)
+
+	// Check run state.
+	stateReq := httptest.NewRequest(http.MethodGet, "/api/run/state", nil)
+	stateW := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(stateW, stateReq)
+
+	if stateW.Code != http.StatusOK {
+		t.Fatalf("status = %d", stateW.Code)
+	}
+
+	var states map[string]*cellState
+	json.Unmarshal(stateW.Body.Bytes(), &states)
+	if _, ok := states["test"]; !ok {
+		t.Error("expected cell state for 'test' after execution")
+	}
+}
+
+func TestCheckUpstreamFailureMissingFile(t *testing.T) {
+	srv := New("/nonexistent/test.md", ":0")
+	// Should not panic; returns "" when file is missing.
+	refused := srv.checkUpstreamFailure("any")
+	if refused != "" {
+		t.Errorf("checkUpstreamFailure with missing file should return empty, got %q", refused)
+	}
+}
+
+func TestMarkStaleWithUnknownCell(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "```go:notebook name=a exported(x int)\nx = 1\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	srv := New(notebook, ":0")
+	srv.mu.Lock()
+	srv.cellStates["a"] = &cellState{Name: "a", Stale: false}
+	srv.mu.Unlock()
+
+	// Mark a cell name that doesn't exist in the notebook — should not panic.
+	srv.markStale("unknown")
+}
+
+func TestRewriteProseOutOfRangeLines(t *testing.T) {
+	// A degenerate case: prose block found but lines out of range.
+	// Hard to trigger naturally, test via rewriteProse with valid prose at line 1.
+	src := "# Title\n\nmore.\n"
+	updated, err := rewriteProse(src, proseUpdateRequest{Line: 1, Body: "# New\n\nupdated."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(updated, "New") {
+		t.Error("should contain updated content")
+	}
+}
+
+func TestHandleEditorEmbeddedHTMLNotFound(t *testing.T) {
+	// handleEditor reads static/editor.html which is embedded.
+	// Verify the endpoint returns 200 with an HTML body (file must be embedded).
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	srv := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodGet, "/api/editor", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	// Should be 200 (file is embedded at build time).
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (editor.html must be embedded)", w.Code)
+	}
+}

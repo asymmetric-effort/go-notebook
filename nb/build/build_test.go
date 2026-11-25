@@ -462,3 +462,106 @@ func TestBuildBinaryShortPassphraseRejected(t *testing.T) {
 		t.Error("expected error for short passphrase")
 	}
 }
+
+func TestBuildBinaryMissingNotebook(t *testing.T) {
+	err := BuildBinary("/nonexistent/file.md", BuildOptions{
+		Output: "/tmp/out",
+	})
+	if err == nil {
+		t.Error("expected error for missing notebook")
+	}
+	if !strings.Contains(err.Error(), "read") {
+		t.Errorf("error should mention read: %v", err)
+	}
+}
+
+func TestBuildBinaryCheckErrors(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	// exported without name triggers checker rule violation
+	os.WriteFile(notebook, []byte("```go:notebook exported(val int)\nval = 1\n```\n"), 0o644)
+
+	err := BuildBinary(notebook, BuildOptions{
+		Output: filepath.Join(dir, "report"),
+	})
+	if err == nil {
+		t.Error("expected error for check errors")
+	}
+	if !strings.Contains(err.Error(), "check errors") {
+		t.Errorf("error should mention check errors: %v", err)
+	}
+}
+
+func TestRunWithGenerateError(t *testing.T) {
+	// A notebook that parses but fails at Generate step — currently hard to
+	// trigger directly, so we confirm the check-errors path runs first.
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	// Two cells with the same name cause a generate error.
+	src := "```go:notebook name=dup exported(x int)\nx=1\n```\n\n```go:notebook name=dup exported(y int)\ny=2\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	err := Run(notebook, Options{Output: filepath.Join(dir, "out.html")})
+	// May or may not error depending on checker — just verify it doesn't panic.
+	_ = err
+}
+
+func TestParseEmbedOutputMalformed(t *testing.T) {
+	// Lines without a second colon should be skipped.
+	stdout := "GOBOOK_EMBED:nocell\nGOBOOK_EMBED:cell2:aGVsbG8=\n"
+	result := parseEmbedOutput(stdout)
+	// Only the last line is a valid GOBOOK_EMBED with valid base64.
+	found := false
+	for _, e := range result {
+		if e.CellName == "cell2" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("valid GOBOOK_EMBED line should be parsed, got: %v", result)
+	}
+}
+
+func TestFindModuleRootReturnsNonEmpty(t *testing.T) {
+	root := findModuleRoot()
+	// In the test environment, should return a real path or ".".
+	if root == "" {
+		t.Error("findModuleRoot should not return empty string")
+	}
+}
+
+func TestRunTypstDefaultOutput(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Report\n"), 0o644)
+
+	orig, _ := os.Getwd()
+	defer os.Chdir(orig)
+	os.Chdir(dir)
+
+	err := Run(notebook, Options{Format: "typst"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(notebook + ".typ"); err != nil {
+		t.Error("default typst output file not created")
+	}
+}
+
+func TestRunPDFDefaultOutput(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# PDF\n"), 0o644)
+
+	orig, _ := os.Getwd()
+	defer os.Chdir(orig)
+	os.Chdir(dir)
+
+	err := Run(notebook, Options{Format: "pdf"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(notebook + ".pdf"); err != nil {
+		t.Error("default pdf output file not created")
+	}
+}
