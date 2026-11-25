@@ -2,55 +2,60 @@
 
 ## Current status
 
-The Typst WASM module renders PDFs using Typst's built-in font
-fallbacks. No external fonts are embedded in the module. Text renders
-correctly for ASCII content; non-Latin scripts may fall back to
-placeholder glyphs.
+The Typst WASM module embeds fonts from the `typst-assets` crate
+(version 0.13, `fonts` feature). Fonts are loaded at module
+initialization via `typst_assets::fonts()` and registered with the
+Typst font book. The module is ~27 MB, with fonts accounting for
+the majority of the size.
 
-## Font selection
+## Embedded font families
 
-Fonts must be under MIT, Apache-2.0, or OFL (SIL Open Font License)
-which permits embedding in distributed binaries.
+The `typst-assets` crate provides Typst's default font set:
 
-### Selected fonts
+| Font                | License                        | Purpose                           |
+| ------------------- | ------------------------------ | --------------------------------- |
+| New Computer Modern | OFL 1.1                        | Serif body text (Typst default)   |
+| Libertinus          | OFL 1.1                        | Math and serif fallback           |
+| DejaVu              | Bitstream Vera + public domain | Sans-serif and monospace fallback |
 
-| Font | License | Purpose | Status |
-| --- | --- | --- | --- |
-| New Computer Modern | OFL 1.1 | Serif body text (Typst default) | Planned |
-| Inter | OFL 1.1 | Sans-serif headings | Planned |
-| JetBrains Mono | OFL 1.1 | Monospace code | Planned |
+These fonts cover Latin, Cyrillic, Greek, and common Unicode symbols.
+CJK and other complex scripts may still use system fallbacks if
+available, or Typst's placeholder glyphs if not.
 
-### License audit
+## License audit
 
-All three fonts use the SIL Open Font License 1.1 which explicitly
-permits:
+All embedded fonts use licenses that permit embedding and redistribution:
 
-- Embedding in documents and applications
-- Redistribution in source and binary forms
-- Use in commercial and non-commercial contexts
+- **OFL 1.1** (New Computer Modern, Libertinus): permits embedding in
+  documents and applications, redistribution in source and binary forms,
+  commercial and non-commercial use. Requires fonts not be sold standalone.
+- **Bitstream Vera / public domain** (DejaVu): no restrictions on
+  redistribution or embedding.
 
-The OFL requires that fonts not be sold by themselves but permits
-bundling with other software (our use case).
+The full license audit is in `docs/typst-license-audit.md`.
 
-## Implementation plan
+## Implementation
 
-Fonts will be embedded via one of these approaches:
+Fonts are embedded via approach 3 (typst-assets crate) in
+`typst-module/Cargo.toml`:
 
-1. **In the WASM module**: Include font files in the Rust binary and
-   register them with the Typst `World::font()` trait method. Increases
-   WASM module size by ~5-10 MB.
+```toml
+typst-assets = { version = "0.13", features = ["fonts"] }
+```
 
-2. **In the Go runtime**: Embed font files with `//go:embed` in the
-   `nb/engine` package and pass them to the WASM module via stdin along
-   with the compilation command.
+The Rust code loads them at initialization (`typst-module/src/main.rs`):
 
-3. **Via typst-assets**: The `typst-assets` crate (already a transitive
-   dependency) may provide access to Typst's default font set.
+```rust
+for font_data in typst_assets::fonts() {
+    let buffer = Bytes::new(font_data.to_vec());
+    for font in Font::iter(buffer) {
+        book.push(font.info().clone());
+        fonts.push(font);
+    }
+}
+```
 
-Approach 3 is preferred as it leverages existing infrastructure.
+## Binary size impact
 
-## Running without fonts
-
-The current module works for all ASCII text and common Unicode.
-PDFs are valid but may display Typst's fallback font warnings for
-content requiring specific typefaces.
+The `--no-pdf` build flag excludes the Typst WASM module (~27 MB)
+from the report binary when PDF output is not needed.
