@@ -34,6 +34,7 @@ var buildOutput string
 var buildPassphrase bool
 var buildPassphraseFile string
 var buildSignKey string
+var buildRecipients []string
 var buildNoPDF bool
 var buildNoHTML bool
 var buildNoMarkdown bool
@@ -52,6 +53,7 @@ var buildCmd = &cobra.Command{
 		opts := build.BuildOptions{
 			Output:     buildOutput,
 			Passphrase: passphrase,
+			Recipients: buildRecipients,
 			NoPDF:      buildNoPDF,
 			NoHTML:     buildNoHTML,
 			NoMarkdown: buildNoMarkdown,
@@ -239,6 +241,9 @@ func init() {
 	buildCmd.Flags().StringVar(&buildPassphraseFile, "passphrase-file", "", "read passphrase from file")
 	buildCmd.MarkFlagsMutuallyExclusive("passphrase", "passphrase-file")
 	buildCmd.Flags().StringVar(&buildSignKey, "sign-key", "", "sign output with ML-DSA-65 private key")
+	buildCmd.Flags().StringArrayVar(&buildRecipients, "recipient", nil, "encrypt for recipient public key (repeatable)")
+	buildCmd.MarkFlagsMutuallyExclusive("passphrase", "recipient")
+	buildCmd.MarkFlagsMutuallyExclusive("passphrase-file", "recipient")
 	buildCmd.Flags().BoolVar(&buildNoPDF, "no-pdf", false, "exclude PDF/Typst engine from binary")
 	buildCmd.Flags().BoolVar(&buildNoHTML, "no-html", false, "exclude HTML/CommonMark from binary")
 	buildCmd.Flags().BoolVar(&buildNoMarkdown, "no-markdown", false, "exclude Markdown backend from binary")

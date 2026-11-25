@@ -3,6 +3,7 @@
 package identity
 
 import (
+	"bytes"
 	"crypto/mldsa"
 	"os"
 	"path/filepath"
@@ -142,5 +143,65 @@ func TestReadPrivateKeyBadPEM(t *testing.T) {
 	_, err := ReadPrivateKey(path)
 	if err == nil {
 		t.Error("expected error for bad PEM")
+	}
+}
+
+func TestGenerateEncryptionKeys(t *testing.T) {
+	pub, priv, err := GenerateEncryptionKeys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pub == nil || priv == nil {
+		t.Fatal("keys should not be nil")
+	}
+	if len(pub.Bytes()) == 0 {
+		t.Error("public key bytes should not be empty")
+	}
+}
+
+func TestWriteAndReadEncryptionKeys(t *testing.T) {
+	pub, priv, err := GenerateEncryptionKeys()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	baseName := filepath.Join(dir, "test")
+	if err := WriteEncryptionKeys(pub, priv, baseName); err != nil {
+		t.Fatal(err)
+	}
+
+	// Read back public key.
+	pub2, err := ReadEncryptionPublicKey(baseName + ".enc.pub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(pub.Bytes(), pub2.Bytes()) {
+		t.Error("public key round-trip mismatch")
+	}
+
+	// Read back private key.
+	priv2, err := ReadEncryptionPrivateKey(baseName + ".enc.key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	privBytes1, _ := priv.Bytes()
+	privBytes2, _ := priv2.Bytes()
+	if !bytes.Equal(privBytes1, privBytes2) {
+		t.Error("private key round-trip mismatch")
+	}
+}
+
+func TestReadEncryptionPublicKeyMissing(t *testing.T) {
+	_, err := ReadEncryptionPublicKey("/nonexistent/file")
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
+func TestReadEncryptionPrivateKeyMissing(t *testing.T) {
+	_, err := ReadEncryptionPrivateKey("/nonexistent/file")
+	if err == nil {
+		t.Error("expected error for missing file")
 	}
 }

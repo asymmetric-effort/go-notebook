@@ -32,11 +32,12 @@ type Options struct {
 
 // BuildOptions configures gobook build (compile a standalone binary).
 type BuildOptions struct {
-	Output     string // Output binary path.
-	Passphrase string // Encryption passphrase for data=embedded cells.
-	NoPDF      bool   // Exclude PDF/Typst engine from binary.
-	NoHTML     bool   // Exclude HTML/CommonMark from binary.
-	NoMarkdown bool   // Exclude Markdown backend from binary.
+	Output     string   // Output binary path.
+	Passphrase string   // Encryption passphrase for data=embedded cells.
+	Recipients []string // Recipient public key files for data=embedded encryption.
+	NoPDF      bool     // Exclude PDF/Typst engine from binary.
+	NoHTML     bool     // Exclude HTML/CommonMark from binary.
+	NoMarkdown bool     // Exclude Markdown backend from binary.
 	Cross      CrossCompileOptions
 }
 
