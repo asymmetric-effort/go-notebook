@@ -112,6 +112,7 @@ func assembleSource(gen GenerateResult, notebookPath string) string {
 			"\"github.com/asymmetric-effort/go-notebook/nb/crypto\"",
 			"\"github.com/asymmetric-effort/go-notebook/nb/document\"",
 			"\"github.com/asymmetric-effort/go-notebook/nb/engine\"",
+			"\"github.com/asymmetric-effort/go-notebook/nb/identity\"",
 			"\"github.com/asymmetric-effort/go-notebook/nb/render\"",
 			"\"github.com/spf13/cobra\"",
 		} {
@@ -148,7 +149,7 @@ func assembleSource(gen GenerateResult, notebookPath string) string {
 		fmt.Fprintf(&buf, "var _ = kernel.DialSocket\nvar _ = log.Fatal\nvar _ = os.Getenv\n\n")
 	}
 	if gen.ReportMode {
-		fmt.Fprintf(&buf, "var _ = context.Background\nvar _ = document.NewDocument\nvar _ = engine.New\nvar _ = render.HTML\nvar _ = cobra.Command{}\nvar _ = crypto.ValidatePassphrase\nvar _ = time.Second\nvar _ = strings.TrimSpace\nvar _ = os.Exit\n\n")
+		fmt.Fprintf(&buf, "var _ = context.Background\nvar _ = document.NewDocument\nvar _ = engine.New\nvar _ = identity.ReadEncryptionPrivateKey\nvar _ = render.HTML\nvar _ = cobra.Command{}\nvar _ = crypto.ValidatePassphrase\nvar _ = time.Second\nvar _ = strings.TrimSpace\nvar _ = os.Exit\n\n")
 	}
 
 	// Cell structs, marshal methods, and functions.
@@ -534,7 +535,7 @@ func generateReportMain(gen GenerateResult) string {
 
 	// main function with cobra.
 	fmt.Fprintf(&buf, "func main() {\n")
-	fmt.Fprintf(&buf, "\tvar format, output, passphrase, passphraseFile, cellTimeout string\n\n")
+	fmt.Fprintf(&buf, "\tvar format, output, passphrase, passphraseFile, keyFile, cellTimeout string\n\n")
 	fmt.Fprintf(&buf, "\trootCmd := &cobra.Command{\n")
 	fmt.Fprintf(&buf, "\t\tUse:   \"report\",\n")
 	fmt.Fprintf(&buf, "\t\tShort: \"Generate a report from this notebook\",\n")
@@ -597,6 +598,7 @@ func generateReportMain(gen GenerateResult) string {
 	fmt.Fprintf(&buf, "\trootCmd.Flags().StringVarP(&output, \"output\", \"o\", \"\", \"output file path\")\n")
 	fmt.Fprintf(&buf, "\trootCmd.Flags().StringVar(&passphrase, \"passphrase\", \"\", \"decryption passphrase\")\n")
 	fmt.Fprintf(&buf, "\trootCmd.Flags().StringVar(&passphraseFile, \"passphrase-file\", \"\", \"read passphrase from file\")\n")
+	fmt.Fprintf(&buf, "\trootCmd.Flags().StringVar(&keyFile, \"key-file\", \"\", \"recipient private key for decryption\")\n")
 	fmt.Fprintf(&buf, "\trootCmd.Flags().StringVar(&cellTimeout, \"cell-timeout\", \"\", \"per-cell timeout (e.g. 30s, 2m)\")\n")
 	fmt.Fprintf(&buf, "\trootCmd.MarkFlagsMutuallyExclusive(\"passphrase\", \"passphrase-file\")\n\n")
 
