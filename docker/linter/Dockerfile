@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxml2-utils \
     make \
     python3 \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Go 1.27.4.
