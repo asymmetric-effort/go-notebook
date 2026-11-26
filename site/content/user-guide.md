@@ -52,7 +52,7 @@ documentation.
 Cells can have attributes that control execution:
 
 | Attribute | Description |
-|-----------|-------------|
+| --------- | ----------- |
 | `name` | Names the cell for reference in error messages |
 | `timeout` | Per-cell timeout (e.g., `timeout=30s`) |
 | `skip` | Skip this cell during execution |
@@ -78,7 +78,7 @@ Cells operate in one of two data modes:
 The report binary (from `gobook build`) supports three output formats:
 
 | Format | Flag | Description |
-|--------|------|-------------|
+| ------ | ---- | ----------- |
 | HTML | `--format html` | Self-contained HTML with inline styles and images |
 | PDF | `--format pdf` | PDF rendered via Typst (zero cgo, WASM-based) |
 | Markdown | `--format markdown` | Rendered Markdown with output blocks filled in |

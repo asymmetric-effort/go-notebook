@@ -7,7 +7,7 @@ output or inline in PDF.
 ## Supported Chart Types
 
 | Type | Description |
-|------|-------------|
+| ---- | ----------- |
 | `line` | Line chart with multiple series |
 | `bar` | Vertical bar chart |
 | `scatter` | Scatter plot with X/Y data points |
@@ -156,7 +156,7 @@ ctx.Chart(chart.Options{
 ## Chart Options
 
 | Option | Type | Description |
-|--------|------|-------------|
+| ------ | ---- | ----------- |
 | `Type` | `string` | Chart type (line, bar, scatter, pie, histogram, heatmap, box) |
 | `Title` | `string` | Chart title |
 | `Width` | `int` | Width in pixels (default: 600) |

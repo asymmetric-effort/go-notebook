@@ -71,7 +71,7 @@ gobook verify --signature report.sig --signer author.sign.pub
 ## Cryptographic Details
 
 | Component | Algorithm |
-|-----------|-----------|
+| --------- | --------- |
 | Key encapsulation | HPKE ML-KEM-768-X25519 |
 | Symmetric encryption | AES-256-GCM |
 | Key derivation | Argon2id + HKDF-SHA256 |

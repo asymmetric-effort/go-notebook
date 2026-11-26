@@ -52,7 +52,7 @@ The editor uses a three-tier architecture:
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
-|----------|--------|
+| -------- | ------ |
 | `Shift+Enter` | Execute current cell |
 | `Ctrl+Enter` | Execute current cell and stay |
 | `Ctrl+S` | Save notebook |

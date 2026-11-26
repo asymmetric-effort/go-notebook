@@ -12,7 +12,7 @@ gobook build <notebook.md> [flags]
 ```
 
 | Flag | Description |
-|------|-------------|
+| ---- | ----------- |
 | `-o, --output` | Output binary path (default: notebook name without .md) |
 | `--os` | Target operating system for cross-compilation |
 | `--arch` | Target architecture for cross-compilation |
@@ -66,7 +66,7 @@ gobook serve <notebook.md> [flags]
 ```
 
 | Flag | Description |
-|------|-------------|
+| ---- | ----------- |
 | `--port` | HTTP port (default: 8080) |
 | `--host` | Bind address (default: localhost) |
 
@@ -79,7 +79,7 @@ gobook keygen [flags]
 ```
 
 | Flag | Description |
-|------|-------------|
+| ---- | ----------- |
 | `-o, --output` | Output path prefix (creates .pub and .key files) |
 
 ## gobook verify
@@ -91,7 +91,7 @@ gobook verify [flags]
 ```
 
 | Flag | Description |
-|------|-------------|
+| ---- | ----------- |
 | `--signature` | Path to the signature file |
 | `--signer` | Path to the signer's public key |
 
@@ -116,7 +116,7 @@ gobook version
 The binary produced by `gobook build` accepts these flags:
 
 | Flag | Description |
-|------|-------------|
+| ---- | ----------- |
 | `--format` | Output format: `html`, `pdf`, or `markdown` |
 | `-o, --output` | Output file path |
 | `--cell-timeout` | Per-cell execution timeout |
