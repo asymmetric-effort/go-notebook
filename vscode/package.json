@@ -42,7 +42,7 @@
 	"scripts": {
 		"compile": "tsc -p ./",
 		"lint": "eslint src/",
-		"test": "node ./out/test/runTests.js"
+		"test": "bun run ./out/test/runTests.js"
 	},
 	"devDependencies": {
 		"@types/vscode": "^1.85.0",
