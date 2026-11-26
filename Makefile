@@ -1,4 +1,4 @@
-.PHONY: all clean lint test build release hooks
+.PHONY: all clean lint test build release hooks version version/major version/minor version/patch
 
 -include Makefile.d/*.mk
 
@@ -21,3 +21,15 @@ release:
 
 hooks:
 	go run ./tools/hooks
+
+version:
+	go run ./tools/version
+
+version/major:
+	go run ./tools/version major
+
+version/minor:
+	go run ./tools/version minor
+
+version/patch:
+	go run ./tools/version patch
