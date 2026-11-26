@@ -470,16 +470,42 @@ func generateReportMain(gen GenerateResult) string {
 		}
 	}
 
+	// Build a map of embedded cell data by name for quick lookup.
+	embeddedByName := make(map[string][]byte)
+	for _, ec := range gen.EmbeddedCells {
+		embeddedByName[ec.CellName] = ec.EncryptedData
+	}
+
 	// runCells function executes all cells and builds the document model.
-	fmt.Fprintf(&buf, "func runCells(cellTimeout time.Duration) (*document.Document, error) {\n")
+	fmt.Fprintf(&buf, "func runCells(cellTimeout time.Duration, passphrase string) (*document.Document, error) {\n")
 	fmt.Fprintf(&buf, "\tctx := nb.NewContext(nil)\n")
 	fmt.Fprintf(&buf, "\t_ = ctx\n")
 	fmt.Fprintf(&buf, "\t_ = cellTimeout\n")
+	fmt.Fprintf(&buf, "\t_ = passphrase\n")
 
 	namedVars = nil
 	for _, cell := range gen.Cells {
 		if cell.StructName != "" {
 			varName := strings.TrimSuffix(cell.StructName, "Cell")
+
+			if cell.DataMode == DataEmbedded {
+				if encData, ok := embeddedByName[varName]; ok && len(encData) > 0 {
+					// Embedded cell with encrypted data: decrypt and unmarshal.
+					fmt.Fprintf(&buf, "\t// %s is data=embedded — decrypt and unmarshal.\n", varName)
+					fmt.Fprintf(&buf, "\tvar %s %s\n", varName, cell.StructName)
+					fmt.Fprintf(&buf, "\t{\n")
+					fmt.Fprintf(&buf, "\t\tembeddedData := %s\n", goByteSliceLiteral(encData))
+					fmt.Fprintf(&buf, "\t\tdecrypted, err := crypto.DecryptPayload([]byte(passphrase), embeddedData, %q)\n", varName)
+					fmt.Fprintf(&buf, "\t\tif err != nil { return nil, fmt.Errorf(\"decrypt cell %s: %%w\", err) }\n", varName)
+					fmt.Fprintf(&buf, "\t\tif err := %s.UnmarshalBinary(decrypted); err != nil {\n", varName)
+					fmt.Fprintf(&buf, "\t\t\treturn nil, fmt.Errorf(\"unmarshal cell %s: %%w\", err)\n", varName)
+					fmt.Fprintf(&buf, "\t\t}\n")
+					fmt.Fprintf(&buf, "\t}\n")
+					namedVars = append(namedVars, varName)
+					continue
+				}
+			}
+
 			params := "ctx"
 			if len(namedVars) > 0 {
 				params = "ctx, " + strings.Join(namedVars, ", ")
@@ -537,7 +563,7 @@ func generateReportMain(gen GenerateResult) string {
 	fmt.Fprintf(&buf, "\t\t\t}\n\n")
 
 	// Run cells.
-	fmt.Fprintf(&buf, "\t\t\tdoc, err := runCells(timeout)\n")
+	fmt.Fprintf(&buf, "\t\t\tdoc, err := runCells(timeout, pass)\n")
 	fmt.Fprintf(&buf, "\t\t\tif err != nil { return err }\n\n")
 
 	// Render.

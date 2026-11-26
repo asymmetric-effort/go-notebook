@@ -79,19 +79,51 @@ func BuildBinary(notebookPath string, opts BuildOptions) error {
 	}
 	defer os.RemoveAll(tmpDir)
 
+	moduleRoot := findModuleRoot()
+
+	// If the notebook has data=embedded cells and a passphrase is provided,
+	// run the embed-mode first pass to capture serialized cell data, then
+	// encrypt it.
+	if hasEmbeddedCells(gen) && opts.Passphrase != "" {
+		embedGen := gen
+		embedGen.ReportMode = false // Use batch main for embed pass.
+
+		embedPkgDir := filepath.Join(tmpDir, "embed-pkg")
+		if err := core.WritePackage(embedGen, embedPkgDir, notebookPath, "gobook-embed"); err != nil {
+			return fmt.Errorf("write embed package: %w", err)
+		}
+		writeGoMod(embedPkgDir, moduleRoot)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+
+		k := kernel.New()
+		embedResult, _ := k.RunCell(ctx, "embed", 5*time.Minute,
+			func(ctx context.Context) (kernel.CellResult, error) {
+				return kernel.GoRunWithEnv(ctx, embedPkgDir, []string{"GOBOOK_EMBED_MODE=1"})
+			})
+
+		cellData := parseEmbedOutput(embedResult.Stdout)
+
+		// Encrypt each cell's data with the passphrase.
+		for i, cd := range cellData {
+			encrypted, err := crypto.EncryptPayload([]byte(opts.Passphrase), cd.EncryptedData, cd.CellName)
+			if err != nil {
+				return fmt.Errorf("encrypt cell %q: %w", cd.CellName, err)
+			}
+			cellData[i].EncryptedData = encrypted
+		}
+
+		gen.EmbeddedCells = cellData
+	}
+
 	pkgDir := filepath.Join(tmpDir, "pkg")
 	if err := core.WritePackage(gen, pkgDir, notebookPath, "gobook-report"); err != nil {
 		return fmt.Errorf("write package: %w", err)
 	}
 
 	// Add replace directive for local module.
-	moduleRoot := findModuleRoot()
-	goModPath := filepath.Join(pkgDir, "go.mod")
-	goModData, _ := os.ReadFile(goModPath)
-	goModStr := string(goModData) +
-		"\nrequire github.com/spf13/cobra v1.9.1\n" +
-		"\nreplace github.com/asymmetric-effort/go-notebook => " + moduleRoot + "\n"
-	os.WriteFile(goModPath, []byte(goModStr), 0o644)
+	writeGoMod(pkgDir, moduleRoot)
 
 	// Run go mod tidy to resolve dependencies.
 	tidyCmd := exec.Command("go", "mod", "tidy")
@@ -369,4 +401,14 @@ func findModuleRoot() string {
 		return "."
 	}
 	return filepath.Dir(modFile)
+}
+
+// writeGoMod writes a go.mod with the module replace directive and cobra dependency.
+func writeGoMod(pkgDir, moduleRoot string) {
+	goModPath := filepath.Join(pkgDir, "go.mod")
+	goModData, _ := os.ReadFile(goModPath)
+	goModStr := string(goModData) +
+		"\nrequire github.com/spf13/cobra v1.9.1\n" +
+		"\nreplace github.com/asymmetric-effort/go-notebook => " + moduleRoot + "\n"
+	os.WriteFile(goModPath, []byte(goModStr), 0o644)
 }
