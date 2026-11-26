@@ -6,7 +6,7 @@ or compile into standalone report binaries that render Markdown, HTML or PDF.
 
 ## Documentation
 
-See [docs/](docs/) for detailed documentation.
+See [docs/index.md](docs/index.md) for the full documentation index.
 
 ## License
 
