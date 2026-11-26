@@ -611,7 +611,13 @@ func generateReportMain(gen GenerateResult) string {
 	fmt.Fprintf(&buf, "\trootCmd.Flags().StringVar(&passphraseFile, \"passphrase-file\", \"\", \"read passphrase from file\")\n")
 	fmt.Fprintf(&buf, "\trootCmd.Flags().StringVar(&keyFile, \"key-file\", \"\", \"recipient private key for decryption\")\n")
 	fmt.Fprintf(&buf, "\trootCmd.Flags().StringVar(&cellTimeout, \"cell-timeout\", \"\", \"per-cell timeout (e.g. 30s, 2m)\")\n")
-	fmt.Fprintf(&buf, "\trootCmd.MarkFlagsMutuallyExclusive(\"passphrase\", \"passphrase-file\")\n\n")
+	fmt.Fprintf(&buf, "\trootCmd.MarkFlagsMutuallyExclusive(\"passphrase\", \"passphrase-file\")\n")
+
+	// If the binary has encrypted embedded data, require an unlock flag.
+	if len(gen.EmbeddedCells) > 0 {
+		fmt.Fprintf(&buf, "\trootCmd.MarkFlagsOneRequired(\"passphrase\", \"passphrase-file\", \"key-file\")\n")
+	}
+	fmt.Fprintf(&buf, "\n")
 
 	fmt.Fprintf(&buf, "\tif err := rootCmd.Execute(); err != nil {\n")
 	fmt.Fprintf(&buf, "\t\tfmt.Fprintf(os.Stderr, \"Error: %%v\\n\", err)\n")
