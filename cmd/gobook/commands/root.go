@@ -108,12 +108,26 @@ var fmtCmd = &cobra.Command{
 var genOutDir string
 
 var genCmd = &cobra.Command{
-	Use:     "gen <notebook.md>",
-	Aliases: []string{"generate"},
-	Short:   "Generate Go package from a notebook",
-	Args:    cobra.ExactArgs(1),
+	Use:   "gen <notebook.md>",
+	Short: "Generate Go package from a notebook",
+	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return cmdGen(args[0], genOutDir)
+	},
+}
+
+var generateCmd = &cobra.Command{
+	Use:   "generate <notebook.md>",
+	Short: "Generate Go package and run //go:generate directives",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		notebookPath := args[0]
+		// First, generate the package (same as gen).
+		if err := cmdGen(notebookPath, genOutDir); err != nil {
+			return err
+		}
+		// Then, find and run //go:generate directives from go:defs blocks.
+		return runGoGenerateDirectives(notebookPath)
 	},
 }
 
@@ -269,7 +283,7 @@ func init() {
 	_ = verifyCmd.MarkFlagRequired("signature")
 	_ = verifyCmd.MarkFlagRequired("signer")
 
-	rootCmd.AddCommand(buildCmd, checkCmd, fmtCmd, genCmd, keygenCmd, lspCmd, runCmd, serveCmd, verifyCmd, vetCmd)
+	rootCmd.AddCommand(buildCmd, checkCmd, fmtCmd, genCmd, generateCmd, keygenCmd, lspCmd, runCmd, serveCmd, verifyCmd, vetCmd)
 }
 
 // Execute runs the gobook CLI.
@@ -355,6 +369,55 @@ func cmdGen(path string, outDir string) error {
 	}
 
 	fmt.Printf("gobook gen: wrote %d cells to %s/\n", len(gen.Cells), outDir)
+	return nil
+}
+
+// runGoGenerateDirectives scans go:defs blocks for //go:generate directives
+// and executes them from the notebook's directory.
+func runGoGenerateDirectives(notebookPath string) error {
+	src, err := os.ReadFile(notebookPath)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", notebookPath, err)
+	}
+
+	result := core.Parse(string(src))
+	notebookDir := filepath.Dir(notebookPath)
+	if notebookDir == "" {
+		notebookDir = "."
+	}
+
+	var directives []string
+	for _, b := range result.Blocks {
+		if b.Kind != core.BlockDefs {
+			continue
+		}
+		for _, line := range strings.Split(b.Body, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "//go:generate ") {
+				directives = append(directives, strings.TrimPrefix(trimmed, "//go:generate "))
+			}
+		}
+	}
+
+	if len(directives) == 0 {
+		return nil
+	}
+
+	for _, directive := range directives {
+		parts := strings.Fields(directive)
+		if len(parts) == 0 {
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "gobook generate: running %s\n", directive)
+		cmd := exec.Command(parts[0], parts[1:]...)
+		cmd.Dir = notebookDir
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("go:generate %q: %w", directive, err)
+		}
+	}
+
 	return nil
 }
 
