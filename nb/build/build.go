@@ -14,10 +14,13 @@ import (
 	"strings"
 	"time"
 
+	"crypto/hpke"
+
 	"github.com/asymmetric-effort/go-notebook/nb/core"
 	"github.com/asymmetric-effort/go-notebook/nb/crypto"
 	"github.com/asymmetric-effort/go-notebook/nb/document"
 	"github.com/asymmetric-effort/go-notebook/nb/engine"
+	"github.com/asymmetric-effort/go-notebook/nb/identity"
 	"github.com/asymmetric-effort/go-notebook/nb/kernel"
 	"github.com/asymmetric-effort/go-notebook/nb/render"
 )
@@ -115,6 +118,53 @@ func BuildBinary(notebookPath string, opts BuildOptions) error {
 		}
 
 		gen.EmbeddedCells = cellData
+	}
+
+	// Recipient mode: encrypt embedded cells for public key recipients.
+	if hasEmbeddedCells(gen) && len(opts.Recipients) > 0 {
+		// Load recipient public keys.
+		var pubKeys []hpke.PublicKey
+		for _, path := range opts.Recipients {
+			pk, err := identity.ReadEncryptionPublicKey(path)
+			if err != nil {
+				return fmt.Errorf("load recipient key %s: %w", path, err)
+			}
+			pubKeys = append(pubKeys, pk)
+		}
+
+		// Run embed pass if not already done (passphrase mode may have already run it).
+		if len(gen.EmbeddedCells) == 0 {
+			embedGen := gen
+			embedGen.ReportMode = false
+
+			embedPkgDir := filepath.Join(tmpDir, "embed-pkg-rcpt")
+			if err := core.WritePackage(embedGen, embedPkgDir, notebookPath, "gobook-embed"); err != nil {
+				return fmt.Errorf("write embed package: %w", err)
+			}
+			writeGoMod(embedPkgDir, moduleRoot)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+
+			k := kernel.New()
+			embedResult, _ := k.RunCell(ctx, "embed", 5*time.Minute,
+				func(ctx context.Context) (kernel.CellResult, error) {
+					return kernel.GoRunWithEnv(ctx, embedPkgDir, []string{"GOBOOK_EMBED_MODE=1"})
+				})
+
+			gen.EmbeddedCells = parseEmbedOutput(embedResult.Stdout)
+		}
+
+		// Encrypt each cell's data for all recipients.
+		for i, cd := range gen.EmbeddedCells {
+			encrypted, headers, err := crypto.EncryptForRecipients(cd.EncryptedData, pubKeys, cd.CellName)
+			if err != nil {
+				return fmt.Errorf("encrypt cell %q for recipients: %w", cd.CellName, err)
+			}
+			// Prepend recipient headers to the encrypted data.
+			headerBytes := crypto.MarshalRecipientHeaders(headers)
+			gen.EmbeddedCells[i].EncryptedData = append(headerBytes, encrypted...)
+		}
 	}
 
 	pkgDir := filepath.Join(tmpDir, "pkg")
