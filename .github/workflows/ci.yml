@@ -106,3 +106,31 @@ jobs:
           bun install --ignore-scripts
           bunx tsc -p ./
           bun run ./out/test/runTests.js
+  deploy-site:
+    name: Deploy site
+    runs-on: ubuntu-latest
+    needs: [checks, build-and-test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install and build site
+        run: |
+          cd site
+          bun install --frozen-lockfile
+          bun run build
+      - name: Copy CNAME
+        run: cp site/CNAME site/dist/CNAME
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+      - id: deploy
+        uses: actions/deploy-pages@v4

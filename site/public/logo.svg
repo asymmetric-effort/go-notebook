@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <rect width="96" height="96" rx="16" fill="#1e293b"/>
+  <text x="48" y="38" text-anchor="middle" font-family="monospace" font-size="20" font-weight="bold" fill="#3b82f6">go</text>
+  <text x="48" y="62" text-anchor="middle" font-family="monospace" font-size="14" font-weight="bold" fill="#e2e8f0">notebook</text>
+</svg>
