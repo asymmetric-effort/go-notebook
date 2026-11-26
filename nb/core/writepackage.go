@@ -346,6 +346,11 @@ func generateBatchMain(gen GenerateResult, notebookPath string) string {
 			fmt.Fprintf(&buf, "\t\tnb.NewCellError(%q, 0, %s.err)\n", varName, varName)
 			fmt.Fprintf(&buf, "\t\treturn\n")
 			fmt.Fprintf(&buf, "\t}\n")
+			// Deep copy via marshal round-trip to prevent mutation across cells.
+			fmt.Fprintf(&buf, "\t{\n")
+			fmt.Fprintf(&buf, "\t\tdata, err := %s.MarshalBinary()\n", varName)
+			fmt.Fprintf(&buf, "\t\tif err == nil { %s.UnmarshalBinary(data) }\n", varName)
+			fmt.Fprintf(&buf, "\t}\n")
 			namedVars = append(namedVars, varName)
 		} else {
 			// Unnamed cell: call with all named cells.
@@ -514,6 +519,12 @@ func generateReportMain(gen GenerateResult) string {
 			fmt.Fprintf(&buf, "\t%s := %s(%s)\n", varName, cell.FuncName, params)
 			fmt.Fprintf(&buf, "\tif %s.err != nil {\n", varName)
 			fmt.Fprintf(&buf, "\t\treturn nil, fmt.Errorf(\"cell %s: %%w\", %s.err)\n", varName, varName)
+			fmt.Fprintf(&buf, "\t}\n")
+			// Deep copy via marshal round-trip to prevent mutation across cells.
+			fmt.Fprintf(&buf, "\t{\n")
+			fmt.Fprintf(&buf, "\t\tdata, err := %s.MarshalBinary()\n", varName)
+			fmt.Fprintf(&buf, "\t\tif err != nil { return nil, fmt.Errorf(\"deep copy %s: %%w\", err) }\n", varName)
+			fmt.Fprintf(&buf, "\t\tif err := %s.UnmarshalBinary(data); err != nil { return nil, fmt.Errorf(\"deep copy %s: %%w\", err) }\n", varName, varName)
 			fmt.Fprintf(&buf, "\t}\n")
 			namedVars = append(namedVars, varName)
 		} else {
