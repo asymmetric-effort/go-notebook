@@ -213,12 +213,15 @@ var lspCmd = &cobra.Command{
 	},
 }
 
+var verifySignature string
+var verifySigner string
+
 var verifyCmd = &cobra.Command{
-	Use:   "verify <file> <signature> <public-key>",
+	Use:   "verify <binary>",
 	Short: "Verify a detached ML-DSA-65 signature",
-	Args:  cobra.ExactArgs(3),
+	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := identity.VerifyFile(args[0], args[1], args[2]); err != nil {
+		if err := identity.VerifyFile(args[0], verifySignature, verifySigner); err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "gobook verify: %s signature valid\n", args[0])
@@ -260,6 +263,11 @@ func init() {
 	keygenCmd.Flags().StringVarP(&keygenOutput, "output", "o", "", "output key file base name")
 
 	lspCmd.Flags().StringVar(&goplsPath, "gopls", "gopls", "path to gopls binary")
+
+	verifyCmd.Flags().StringVar(&verifySignature, "signature", "", "detached signature file (.sig)")
+	verifyCmd.Flags().StringVar(&verifySigner, "signer", "", "signer's public key file (.pub)")
+	_ = verifyCmd.MarkFlagRequired("signature")
+	_ = verifyCmd.MarkFlagRequired("signer")
 
 	rootCmd.AddCommand(buildCmd, checkCmd, fmtCmd, genCmd, keygenCmd, lspCmd, runCmd, serveCmd, verifyCmd, vetCmd)
 }
