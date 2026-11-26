@@ -3,7 +3,8 @@
 {
 	"config": {
 		"default": true,
-		"MD013": false
+		"MD013": false,
+		"MD051": false
 	},
 	"ignores": [
 		"node_modules/",
