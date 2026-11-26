@@ -93,8 +93,12 @@ func moduleRoot() (string, error) {
 	return filepath.Dir(modFile), nil
 }
 
-// markdownLint runs markdownlint-cli2 on Markdown files. Skips if node_modules is not installed.
+// markdownLint runs markdownlint-cli2 on Markdown files. Skips if bunx or node_modules is not installed.
 func markdownLint() error {
+	if _, err := exec.LookPath("bunx"); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: bunx not found, skipping markdownlint\n")
+		return nil
+	}
 	root, err := moduleRoot()
 	if err != nil {
 		return fmt.Errorf("find module root: %w", err)
@@ -108,7 +112,7 @@ func markdownLint() error {
 		return nil
 	}
 	args := append([]string{"markdownlint-cli2"}, files...)
-	cmd := exec.Command("npx", args...)
+	cmd := exec.Command("bunx", args...)
 	cmd.Dir = root
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -250,8 +254,12 @@ func hasTypeScriptFiles() bool {
 	return found
 }
 
-// esLint runs ESLint on TypeScript files. Skips if node_modules is not installed.
+// esLint runs ESLint on TypeScript files. Skips if bunx or node_modules is not installed.
 func esLint() error {
+	if _, err := exec.LookPath("bunx"); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: bunx not found, skipping eslint\n")
+		return nil
+	}
 	if !hasTypeScriptFiles() {
 		return nil
 	}
@@ -263,7 +271,7 @@ func esLint() error {
 		fmt.Fprintf(os.Stderr, "warning: node_modules not found, skipping eslint\n")
 		return nil
 	}
-	cmd := exec.Command("npx", "eslint", ".")
+	cmd := exec.Command("bunx", "eslint", ".")
 	cmd.Dir = root
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -273,8 +281,12 @@ func esLint() error {
 	return nil
 }
 
-// tscCheck runs tsc --noEmit for type checking. Skips if node_modules is not installed.
+// tscCheck runs tsc --noEmit for type checking. Skips if bunx or node_modules is not installed.
 func tscCheck() error {
+	if _, err := exec.LookPath("bunx"); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: bunx not found, skipping tsc\n")
+		return nil
+	}
 	if !hasTypeScriptFiles() {
 		return nil
 	}
@@ -286,7 +298,7 @@ func tscCheck() error {
 		fmt.Fprintf(os.Stderr, "warning: node_modules not found, skipping tsc\n")
 		return nil
 	}
-	cmd := exec.Command("npx", "tsc", "--noEmit")
+	cmd := exec.Command("bunx", "tsc", "--noEmit")
 	cmd.Dir = root
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

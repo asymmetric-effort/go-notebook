@@ -2,7 +2,7 @@
 #
 # Linter image for go-notebook CI.
 # Contains all linters and tools needed for the checks job.
-# Built from ubuntu:26.04 with Go 1.27.4, Node.js 22, and all lint tools.
+# Built from ubuntu:26.04 with Go 1.27.4, Bun, and all lint tools.
 #
 # Build:
 #   docker build -t ghcr.io/asymmetric-effort/go-notebook/linter:latest docker/linter/
@@ -35,10 +35,9 @@ RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-$(dpkg --print-architect
 ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
 ENV GOPATH="/root/go"
 
-# Node.js 22 (LTS).
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
+# Bun (JavaScript runtime and package manager).
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.bun/bin:${PATH}"
 
 # Go-based linters.
 RUN go install github.com/asymmetric-effort/leakdetector/cmd/leakdetector@latest \
@@ -49,8 +48,7 @@ RUN go install github.com/asymmetric-effort/leakdetector/cmd/leakdetector@latest
 
 # Verify all tools are installed.
 RUN go version \
-    && node --version \
-    && npm --version \
+    && bun --version \
     && leakdetector --version || true \
     && govulncheck --version || true \
     && checkmake --version || true \

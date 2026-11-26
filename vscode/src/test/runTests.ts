@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Asymmetric Effort, LLC. MIT License.
 
 // Test runner for grammar and extension tests.
-// This file is the entry point for `npm test`.
+// This file is the entry point for `bun run test`.
 
 import Mocha from "mocha";
 import * as path from "path";

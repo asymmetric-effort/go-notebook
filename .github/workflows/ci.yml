@@ -23,8 +23,8 @@ jobs:
           fetch-depth: 0
       - name: Fix git ownership
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: Install npm dependencies
-        run: npm ci
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
       - name: Leakdetector
         run: |
           leakdetector --skip-history --format sarif --report results.sarif || true
@@ -83,9 +83,9 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.27.4'
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: '22'
+          bun-version: latest
       - name: Build
         run: go build ./...
       - name: Test
@@ -93,6 +93,6 @@ jobs:
       - name: VSCode extension tests
         run: |
           cd vscode
-          npm install --ignore-scripts
-          npx tsc -p ./
-          node ./out/test/runTests.js
+          bun install --ignore-scripts
+          bunx tsc -p ./
+          bun run ./out/test/runTests.js
