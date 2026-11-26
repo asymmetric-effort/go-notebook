@@ -298,7 +298,7 @@ func tscCheck() error {
 		fmt.Fprintf(os.Stderr, "warning: node_modules not found, skipping tsc\n")
 		return nil
 	}
-	cmd := exec.Command("bunx", "tsc", "--noEmit", "-p", "vscode/")
+	cmd := exec.Command("bunx", "tsc", "--noEmit")
 	cmd.Dir = root
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
