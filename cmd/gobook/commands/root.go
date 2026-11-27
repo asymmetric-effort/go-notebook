@@ -181,14 +181,16 @@ var runCmd = &cobra.Command{
 	},
 }
 
-var serveAddr string
+var servePort int
+var serveHost string
 
 var serveCmd = &cobra.Command{
 	Use:   "serve <notebook.md>",
 	Short: "Start the notebook editor server",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		srv := server.New(args[0], serveAddr)
+		addr := fmt.Sprintf("%s:%d", serveHost, servePort)
+		srv := server.New(args[0], addr)
 		return srv.ListenAndServe()
 	},
 }
@@ -272,7 +274,8 @@ func init() {
 
 	genCmd.Flags().StringVar(&genOutDir, "out", "gen", "output directory")
 
-	serveCmd.Flags().StringVar(&serveAddr, "addr", "localhost:8080", "listen address")
+	serveCmd.Flags().IntVar(&servePort, "port", 8080, "HTTP port")
+	serveCmd.Flags().StringVar(&serveHost, "host", "localhost", "bind address")
 
 	keygenCmd.Flags().StringVarP(&keygenOutput, "output", "o", "", "output key file base name")
 
