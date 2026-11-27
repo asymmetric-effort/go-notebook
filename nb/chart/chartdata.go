@@ -4,9 +4,9 @@ package chart
 
 import (
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"html"
 )
 
 // chartDataJSON is the JSON structure embedded in the SVG data-chart attribute.
@@ -43,8 +43,9 @@ func svgOpenTag(width, height int, chartType string, title string, labels []stri
 		// Fallback: no data attribute.
 		return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">`, width, height, width, height)
 	}
+	encoded := base64.StdEncoding.EncodeToString(jsonBytes)
 	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" data-chart="%s">`,
-		width, height, width, height, html.EscapeString(string(jsonBytes)))
+		width, height, width, height, encoded)
 }
 
 //go:embed static/chart.js

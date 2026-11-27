@@ -3,6 +3,7 @@
 package chart
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 )
@@ -14,11 +15,23 @@ func TestSvgOpenTagContainsDataChart(t *testing.T) {
 	if !strings.Contains(tag, "data-chart=") {
 		t.Error("SVG tag should contain data-chart attribute")
 	}
-	// JSON is HTML-escaped in the attribute, so quotes become &quot;
-	if !strings.Contains(tag, "bar") {
+	// Data is base64-encoded; decode and check contents.
+	const prefix = `data-chart="`
+	idx := strings.Index(tag, prefix)
+	if idx < 0 {
+		t.Fatal("data-chart attribute not found")
+	}
+	start := idx + len(prefix)
+	end := strings.Index(tag[start:], `"`)
+	encoded := tag[start : start+end]
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("base64 decode failed: %v", err)
+	}
+	if !strings.Contains(string(decoded), "bar") {
 		t.Error("data-chart should contain chart type")
 	}
-	if !strings.Contains(tag, "sales") {
+	if !strings.Contains(string(decoded), "sales") {
 		t.Error("data-chart should contain series name")
 	}
 }
@@ -27,13 +40,13 @@ func TestSvgOpenTagEscapesJSON(t *testing.T) {
 	series := []Series{{Name: `test"quote`, Values: []float64{1}}}
 	tag := svgOpenTag(600, 400, "line", `Title"Test`, nil, nil, series)
 
-	// The JSON is HTML-escaped in the attribute.
+	// The data is base64-encoded in the attribute.
 	if !strings.Contains(tag, "data-chart=") {
 		t.Error("should have data-chart attribute")
 	}
-	// Should not contain raw quotes inside the attribute value.
+	// Should not contain raw JSON inside the attribute value (base64 has no braces or quotes).
 	if strings.Contains(tag, `data-chart="{"`) {
-		t.Error("JSON should be HTML-escaped")
+		t.Error("JSON should be base64-encoded, not raw")
 	}
 }
 

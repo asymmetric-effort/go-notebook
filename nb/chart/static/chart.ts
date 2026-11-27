@@ -198,7 +198,7 @@ function initCharts(): void {
     const raw = svg.getAttribute("data-chart");
     if (!raw) continue;
     try {
-      const data: ChartData = JSON.parse(raw) as ChartData;
+      const data: ChartData = JSON.parse(atob(raw)) as ChartData;
       new ChartInteraction(svg, data);
     } catch {
       // Invalid chart data — skip silently.
