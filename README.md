@@ -1,8 +1,6 @@
-<p align="center">
-  <img src="logo.png" alt="go-notebook" width="128" height="128" />
-</p>
-
 # go-notebook
+
+![go-notebook](logo.png)
 
 gobook is a Jupyter-like notebook built in Go, with Go as the cell language.
 Notebooks are CommonMark Markdown files that run iteratively in notebook mode
