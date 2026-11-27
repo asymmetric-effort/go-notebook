@@ -82,6 +82,10 @@ func New(notebookPath, addr string) *Server {
 	s.mux.HandleFunc("/api/run/state", s.handleRunState)
 	s.mux.HandleFunc("/editor", s.handleEditor)
 	s.mux.HandleFunc("/api/chart.js", s.handleChartScript)
+	s.mux.HandleFunc("/api/blocks/add", s.handleBlocksAdd)
+	s.mux.HandleFunc("/api/blocks/delete", s.handleBlocksDelete)
+	s.mux.HandleFunc("/api/blocks/reorder", s.handleBlocksReorder)
+	s.mux.HandleFunc("/api/notebook/init", s.handleNotebookInit)
 	s.mux.HandleFunc("/api/lsp/diagnostics", s.handleLSPDiagnostics)
 	s.mux.HandleFunc("/api/lsp/completion", s.handleLSPCompletion)
 	s.mux.HandleFunc("/api/lsp/hover", s.handleLSPHover)
@@ -1275,6 +1279,309 @@ func (s *Server) handleLSPHover(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, hoverInfo{Content: ""})
+}
+
+// addBlockRequest is the JSON body for POST /api/blocks/add.
+type addBlockRequest struct {
+	Kind      string `json:"kind"`       // "cell", "prose", or "defs"
+	AfterLine int    `json:"after_line"` // 0 = insert at beginning; N = insert after block ending at that line.
+	Body      string `json:"body"`       // Block body content.
+	Info      string `json:"info"`       // Info string for fenced blocks (e.g., "go:notebook name=cell1").
+}
+
+func (s *Server) handleBlocksAdd(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req addBlockRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
+		return
+	}
+
+	if req.Kind != "cell" && req.Kind != "prose" && req.Kind != "defs" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "kind must be cell, prose, or defs"})
+		return
+	}
+
+	src, err := os.ReadFile(s.notebookPath)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	updated := insertBlock(string(src), req)
+	if err := os.WriteFile(s.notebookPath, []byte(updated), 0o644); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// insertBlock inserts a new block into the source after the specified line.
+func insertBlock(src string, req addBlockRequest) string {
+	var newLines []string
+	if req.Kind == "prose" {
+		body := req.Body
+		if body == "" {
+			body = ""
+		}
+		newLines = strings.Split(body, "\n")
+	} else {
+		info := req.Info
+		if info == "" {
+			if req.Kind == "cell" {
+				info = "go:notebook name=cell1"
+			} else {
+				info = "go:defs"
+			}
+		}
+		newLines = append(newLines, "```"+info)
+		bodyLines := strings.Split(req.Body, "\n")
+		newLines = append(newLines, bodyLines...)
+		newLines = append(newLines, "```")
+	}
+
+	lines := strings.Split(src, "\n")
+
+	if req.AfterLine == 0 {
+		// Insert at beginning: prepend new lines, then a blank separator, then original content.
+		var out []string
+		out = append(out, newLines...)
+		if len(lines) > 0 && lines[0] != "" {
+			out = append(out, "")
+		}
+		out = append(out, lines...)
+		return strings.Join(out, "\n")
+	}
+
+	// Insert after the specified line.
+	insertIdx := req.AfterLine // 1-based line to 0-based index past that line.
+	if insertIdx > len(lines) {
+		insertIdx = len(lines)
+	}
+
+	var out []string
+	out = append(out, lines[:insertIdx]...)
+	out = append(out, "")
+	out = append(out, newLines...)
+	if insertIdx < len(lines) {
+		out = append(out, lines[insertIdx:]...)
+	}
+	return strings.Join(out, "\n")
+}
+
+// deleteBlockRequest is the JSON body for DELETE /api/blocks/delete.
+type deleteBlockRequest struct {
+	Line int `json:"line"` // Start line of the block to delete (1-based).
+}
+
+func (s *Server) handleBlocksDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req deleteBlockRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
+		return
+	}
+
+	src, err := os.ReadFile(s.notebookPath)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	updated, err := deleteBlock(string(src), req.Line)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if err := os.WriteFile(s.notebookPath, []byte(updated), 0o644); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// deleteBlock removes the block starting at the given line from the source.
+func deleteBlock(src string, line int) (string, error) {
+	result := core.Parse(src)
+
+	var target *core.Block
+	for i := range result.Blocks {
+		if result.Blocks[i].StartPos.Line == line {
+			target = &result.Blocks[i]
+			break
+		}
+	}
+	if target == nil {
+		return "", fmt.Errorf("no block found at line %d", line)
+	}
+
+	lines := strings.Split(src, "\n")
+	startIdx := target.StartPos.Line - 1 // 0-based
+	endIdx := target.EndPos.Line - 1
+
+	if startIdx < 0 || endIdx >= len(lines) {
+		return "", fmt.Errorf("block lines %d-%d out of range", target.StartPos.Line, target.EndPos.Line)
+	}
+
+	var out []string
+	out = append(out, lines[:startIdx]...)
+	// Skip blank lines between blocks (at most one blank line after).
+	skipTo := endIdx + 1
+	if skipTo < len(lines) && strings.TrimSpace(lines[skipTo]) == "" {
+		skipTo++
+	}
+	if skipTo < len(lines) {
+		out = append(out, lines[skipTo:]...)
+	}
+
+	return strings.Join(out, "\n"), nil
+}
+
+// reorderBlockRequest is the JSON body for PUT /api/blocks/reorder.
+type reorderBlockRequest struct {
+	Line      int    `json:"line"`      // Start line of the block to move (1-based).
+	Direction string `json:"direction"` // "up" or "down".
+}
+
+func (s *Server) handleBlocksReorder(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req reorderBlockRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
+		return
+	}
+
+	if req.Direction != "up" && req.Direction != "down" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "direction must be up or down"})
+		return
+	}
+
+	src, err := os.ReadFile(s.notebookPath)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	updated, err := reorderBlock(string(src), req.Line, req.Direction)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if err := os.WriteFile(s.notebookPath, []byte(updated), 0o644); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// reorderBlock swaps the block at the given line with its neighbor in the given direction.
+func reorderBlock(src string, line int, direction string) (string, error) {
+	result := core.Parse(src)
+
+	targetIdx := -1
+	for i := range result.Blocks {
+		if result.Blocks[i].StartPos.Line == line {
+			targetIdx = i
+			break
+		}
+	}
+	if targetIdx < 0 {
+		return "", fmt.Errorf("no block found at line %d", line)
+	}
+
+	var neighborIdx int
+	if direction == "up" {
+		if targetIdx == 0 {
+			return "", fmt.Errorf("cannot move first block up")
+		}
+		neighborIdx = targetIdx - 1
+	} else {
+		if targetIdx == len(result.Blocks)-1 {
+			return "", fmt.Errorf("cannot move last block down")
+		}
+		neighborIdx = targetIdx + 1
+	}
+
+	// Always swap so that 'a' is the earlier block and 'b' is the later.
+	aIdx, bIdx := neighborIdx, targetIdx
+	if aIdx > bIdx {
+		aIdx, bIdx = bIdx, aIdx
+	}
+
+	a := result.Blocks[aIdx]
+	b := result.Blocks[bIdx]
+
+	lines := strings.Split(src, "\n")
+
+	aStart := a.StartPos.Line - 1
+	aEnd := a.EndPos.Line - 1
+	bStart := b.StartPos.Line - 1
+	bEnd := b.EndPos.Line - 1
+
+	aLines := lines[aStart : aEnd+1]
+	bLines := lines[bStart : bEnd+1]
+	betweenLines := lines[aEnd+1 : bStart]
+
+	var out []string
+	out = append(out, lines[:aStart]...)
+	out = append(out, bLines...)
+	out = append(out, betweenLines...)
+	out = append(out, aLines...)
+	if bEnd+1 < len(lines) {
+		out = append(out, lines[bEnd+1:]...)
+	}
+
+	return strings.Join(out, "\n"), nil
+}
+
+// starterContent is the default content for a new notebook.
+const starterContent = `# My Notebook
+
+` + "```go:defs\nimport \"fmt\"\n```" + `
+
+` + "```go:notebook name=hello\nfmt.Println(\"Hello from go-notebook!\")\n```" + `
+`
+
+func (s *Server) handleNotebookInit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	src, err := os.ReadFile(s.notebookPath)
+	if err != nil && !os.IsNotExist(err) {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if strings.TrimSpace(string(src)) != "" {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "notebook already has content"})
+		return
+	}
+
+	if err := os.WriteFile(s.notebookPath, []byte(starterContent), 0o644); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

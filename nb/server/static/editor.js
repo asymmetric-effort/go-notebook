@@ -18,9 +18,7 @@ class NotebookEditor {
     render(blocks) {
         this.container.innerHTML = "";
         if (!blocks || blocks.length === 0) {
-            const p = document.createElement("p");
-            p.textContent = "Empty notebook.";
-            this.container.appendChild(p);
+            this.container.appendChild(this.buildGetStarted());
             return;
         }
         // Run All button at the top.
@@ -40,25 +38,252 @@ class NotebookEditor {
         this.container.appendChild(toolbar);
         // Secret prompt section.
         this.container.appendChild(this.buildSecretPrompt());
-        for (const block of blocks) {
+        // Insert toolbar at the top (before first block).
+        this.container.appendChild(this.buildInsertToolbar(0));
+        for (let i = 0; i < blocks.length; i++) {
+            const block = blocks[i];
+            const isFirst = i === 0;
+            const isLast = i === blocks.length - 1;
             switch (block.kind) {
                 case "prose":
-                    this.container.appendChild(this.buildProseForm(block));
+                    this.container.appendChild(this.buildProseForm(block, isFirst, isLast));
                     break;
                 case "cell":
-                    this.container.appendChild(this.buildCellForm(block));
+                    this.container.appendChild(this.buildCellForm(block, isFirst, isLast));
                     break;
                 case "defs":
-                    this.container.appendChild(this.buildDefsBlock(block));
+                    this.container.appendChild(this.buildDefsBlock(block, isFirst, isLast));
                     break;
                 case "output":
-                    this.container.appendChild(this.buildOutputBlock(block));
+                    this.container.appendChild(this.buildOutputBlock(block, isFirst, isLast));
                     break;
             }
+            // Insert toolbar after each block.
+            this.container.appendChild(this.buildInsertToolbar(block.end_line));
         }
         // Load initial cell states and diagnostics.
         void this.refreshStaleMarkers();
         void this.refreshDiagnostics();
+        // Set up keyboard shortcuts.
+        this.setupKeyboardShortcuts();
+    }
+    buildGetStarted() {
+        const div = document.createElement("div");
+        div.className = "get-started";
+        const h2 = document.createElement("h2");
+        h2.textContent = "Empty Notebook";
+        div.appendChild(h2);
+        const p = document.createElement("p");
+        p.textContent = "This notebook is empty. Add content to get started.";
+        div.appendChild(p);
+        const starterBtn = document.createElement("button");
+        starterBtn.type = "button";
+        starterBtn.textContent = "Create Starter Notebook";
+        starterBtn.className = "starter-btn";
+        starterBtn.addEventListener("click", () => {
+            void this.initNotebook();
+        });
+        div.appendChild(starterBtn);
+        const addRow = document.createElement("div");
+        addRow.className = "insert-toolbar";
+        const addProse = document.createElement("button");
+        addProse.type = "button";
+        addProse.textContent = "+ Add Prose";
+        addProse.addEventListener("click", () => {
+            void this.addBlock("prose", 0);
+        });
+        addRow.appendChild(addProse);
+        const addCell = document.createElement("button");
+        addCell.type = "button";
+        addCell.textContent = "+ Add Cell";
+        addCell.addEventListener("click", () => {
+            void this.addBlock("cell", 0);
+        });
+        addRow.appendChild(addCell);
+        const addDefs = document.createElement("button");
+        addDefs.type = "button";
+        addDefs.textContent = "+ Add Defs";
+        addDefs.addEventListener("click", () => {
+            void this.addBlock("defs", 0);
+        });
+        addRow.appendChild(addDefs);
+        div.appendChild(addRow);
+        return div;
+    }
+    buildInsertToolbar(afterLine) {
+        const div = document.createElement("div");
+        div.className = "insert-toolbar";
+        const proseBtn = document.createElement("button");
+        proseBtn.type = "button";
+        proseBtn.textContent = "+ Prose";
+        proseBtn.addEventListener("click", () => {
+            void this.addBlock("prose", afterLine);
+        });
+        div.appendChild(proseBtn);
+        const cellBtn = document.createElement("button");
+        cellBtn.type = "button";
+        cellBtn.textContent = "+ Cell";
+        cellBtn.addEventListener("click", () => {
+            void this.addBlock("cell", afterLine);
+        });
+        div.appendChild(cellBtn);
+        const defsBtn = document.createElement("button");
+        defsBtn.type = "button";
+        defsBtn.textContent = "+ Defs";
+        defsBtn.addEventListener("click", () => {
+            void this.addBlock("defs", afterLine);
+        });
+        div.appendChild(defsBtn);
+        return div;
+    }
+    buildBlockActions(block, isFirst, isLast) {
+        const div = document.createElement("div");
+        div.className = "block-actions";
+        if (!isFirst) {
+            const upBtn = document.createElement("button");
+            upBtn.type = "button";
+            upBtn.textContent = "\u2191";
+            upBtn.title = "Move up";
+            upBtn.addEventListener("click", () => {
+                void this.reorderBlock(block.line, "up");
+            });
+            div.appendChild(upBtn);
+        }
+        if (!isLast) {
+            const downBtn = document.createElement("button");
+            downBtn.type = "button";
+            downBtn.textContent = "\u2193";
+            downBtn.title = "Move down";
+            downBtn.addEventListener("click", () => {
+                void this.reorderBlock(block.line, "down");
+            });
+            div.appendChild(downBtn);
+        }
+        const deleteBtn = document.createElement("button");
+        deleteBtn.type = "button";
+        deleteBtn.textContent = "Delete";
+        deleteBtn.className = "delete-btn";
+        deleteBtn.addEventListener("click", () => {
+            if (confirm("Delete this block?")) {
+                void this.deleteBlock(block.line);
+            }
+        });
+        div.appendChild(deleteBtn);
+        return div;
+    }
+    async addBlock(kind, afterLine) {
+        try {
+            const body = { kind, after_line: afterLine, body: "" };
+            if (kind === "cell") {
+                body.info = "go:notebook name=cell1";
+            }
+            else if (kind === "defs") {
+                body.info = "go:defs";
+            }
+            const resp = await fetch("/api/blocks/add", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            if (!resp.ok) {
+                const err = await resp.json();
+                alert("Error adding block: " + err.error);
+                return;
+            }
+            void this.load();
+        }
+        catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            alert("Network error: " + msg);
+        }
+    }
+    async deleteBlock(line) {
+        try {
+            const resp = await fetch("/api/blocks/delete", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ line }),
+            });
+            if (!resp.ok) {
+                const err = await resp.json();
+                alert("Error deleting block: " + err.error);
+                return;
+            }
+            void this.load();
+        }
+        catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            alert("Network error: " + msg);
+        }
+    }
+    async reorderBlock(line, direction) {
+        try {
+            const resp = await fetch("/api/blocks/reorder", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ line, direction }),
+            });
+            if (!resp.ok) {
+                const err = await resp.json();
+                alert("Error reordering block: " + err.error);
+                return;
+            }
+            void this.load();
+        }
+        catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            alert("Network error: " + msg);
+        }
+    }
+    async initNotebook() {
+        try {
+            const resp = await fetch("/api/notebook/init", {
+                method: "POST",
+            });
+            if (!resp.ok) {
+                const err = await resp.json();
+                alert("Error: " + err.error);
+                return;
+            }
+            void this.load();
+        }
+        catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            alert("Network error: " + msg);
+        }
+    }
+    setupKeyboardShortcuts() {
+        const textareas = this.container.querySelectorAll("textarea");
+        for (const ta of textareas) {
+            ta.addEventListener("keydown", (e) => {
+                // Shift+Enter: run cell
+                if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                    e.preventDefault();
+                    const section = ta.closest("section");
+                    if (section) {
+                        const runBtn = section.querySelector(".run-btn");
+                        if (runBtn) {
+                            runBtn.click();
+                        }
+                    }
+                }
+                // Ctrl+S / Cmd+S: save
+                if (e.key === "s" && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+                    e.preventDefault();
+                    const section = ta.closest("section");
+                    if (section) {
+                        // Find the save button — it's the first button whose text contains "Save".
+                        const buttons = section.querySelectorAll("button");
+                        for (const btn of buttons) {
+                            if (btn.textContent && btn.textContent.includes("Save")) {
+                                btn.click();
+                                break;
+                            }
+                        }
+                    }
+                }
+            });
+        }
     }
     async refreshDiagnostics() {
         try {
@@ -239,11 +464,12 @@ class NotebookEditor {
         }
     }
     // --- Prose editing ---
-    buildProseForm(block) {
+    buildProseForm(block, isFirst = false, isLast = false) {
         const section = document.createElement("section");
         section.className = "block prose-block";
         const heading = document.createElement("h3");
-        heading.textContent = "Prose (line " + block.line + ")";
+        heading.appendChild(this.buildBlockActions(block, isFirst, isLast));
+        heading.appendChild(document.createTextNode("Prose (line " + block.line + ")"));
         section.appendChild(heading);
         const status = document.createElement("p");
         status.className = "status";
@@ -292,13 +518,14 @@ class NotebookEditor {
         }
     }
     // --- Cell editing ---
-    buildCellForm(block) {
+    buildCellForm(block, isFirst = false, isLast = false) {
         const section = document.createElement("section");
         section.className = "block cell-block";
         section.dataset["line"] = String(block.line);
         section.dataset["cellName"] = block.name ?? "";
         const heading = document.createElement("h2");
-        heading.textContent = block.name ? "Cell: " + block.name : "Cell (line " + block.line + ")";
+        heading.appendChild(this.buildBlockActions(block, isFirst, isLast));
+        heading.appendChild(document.createTextNode(block.name ? "Cell: " + block.name : "Cell (line " + block.line + ")"));
         const marker = document.createElement("span");
         marker.className = "cell-marker";
         heading.appendChild(marker);
@@ -479,10 +706,10 @@ class NotebookEditor {
                 prefix = "Line " + err.line + ": ";
             }
             else if (err.kind === "timeout") {
-                prefix = "⏱ ";
+                prefix = "\u23F1 ";
             }
             else if (err.kind === "panic") {
-                prefix = "⚠ ";
+                prefix = "\u26A0 ";
             }
             div.textContent = prefix + err.message;
             outputArea.appendChild(div);
@@ -526,22 +753,24 @@ class NotebookEditor {
         }
     }
     // --- Read-only blocks ---
-    buildDefsBlock(block) {
+    buildDefsBlock(block, isFirst = false, isLast = false) {
         const section = document.createElement("section");
         section.className = "block defs-block";
         const heading = document.createElement("h3");
-        heading.textContent = "Definitions (line " + block.line + ")";
+        heading.appendChild(this.buildBlockActions(block, isFirst, isLast));
+        heading.appendChild(document.createTextNode("Definitions (line " + block.line + ")"));
         section.appendChild(heading);
         const pre = document.createElement("pre");
         pre.textContent = block.body;
         section.appendChild(pre);
         return section;
     }
-    buildOutputBlock(block) {
+    buildOutputBlock(block, isFirst = false, isLast = false) {
         const section = document.createElement("section");
         section.className = "block output-block";
         const heading = document.createElement("h3");
-        heading.textContent = "Output (line " + block.line + ")";
+        heading.appendChild(this.buildBlockActions(block, isFirst, isLast));
+        heading.appendChild(document.createTextNode("Output (line " + block.line + ")"));
         section.appendChild(heading);
         const pre = document.createElement("pre");
         pre.textContent = block.body;
