@@ -3881,3 +3881,36 @@ func TestParseRunErrorsVariants(t *testing.T) {
 		t.Errorf("expected stack trace lines to be skipped, got %d errors", len(errs))
 	}
 }
+
+func TestIsSourceTree(t *testing.T) {
+	// Find the actual repo root (this file is at nb/server/).
+	_, thisFile, _, _ := runtime.Caller(0)
+	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(thisFile)))
+
+	t.Run("actual repo root", func(t *testing.T) {
+		if !isSourceTree(repoRoot) {
+			t.Errorf("expected isSourceTree(%q) = true for the repo root", repoRoot)
+		}
+	})
+
+	t.Run("dot returns false", func(t *testing.T) {
+		if isSourceTree(".") {
+			t.Error("expected isSourceTree(\".\") = false")
+		}
+	})
+
+	t.Run("temp dir without go.mod", func(t *testing.T) {
+		dir := t.TempDir()
+		if isSourceTree(dir) {
+			t.Errorf("expected isSourceTree(%q) = false for empty dir", dir)
+		}
+	})
+
+	t.Run("temp dir with wrong module path", func(t *testing.T) {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/other\n"), 0o644)
+		if isSourceTree(dir) {
+			t.Errorf("expected isSourceTree(%q) = false for wrong module", dir)
+		}
+	})
+}

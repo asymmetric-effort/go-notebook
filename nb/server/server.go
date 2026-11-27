@@ -687,7 +687,11 @@ func (s *Server) runBatch(w http.ResponseWriter, r *http.Request) {
 	moduleRoot := findModuleRoot()
 	goModPath := filepath.Join(pkgDir, "go.mod")
 	goModData, _ := os.ReadFile(goModPath)
-	goModStr := string(goModData) + "\nreplace github.com/asymmetric-effort/go-notebook => " + moduleRoot + "\n"
+	goModStr := string(goModData)
+	// Only add replace directive when running from the source tree.
+	if isSourceTree(moduleRoot) {
+		goModStr += "\nreplace github.com/asymmetric-effort/go-notebook => " + moduleRoot + "\n"
+	}
 	os.WriteFile(goModPath, []byte(goModStr), 0o644)
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
@@ -867,7 +871,11 @@ func (s *Server) executeNotebook(r *http.Request, cellName string) runResponse {
 	moduleRoot := findModuleRoot()
 	goModPath := filepath.Join(pkgDir, "go.mod")
 	goModData, _ := os.ReadFile(goModPath)
-	goModStr := string(goModData) + "\nreplace github.com/asymmetric-effort/go-notebook => " + moduleRoot + "\n"
+	goModStr := string(goModData)
+	// Only add replace directive when running from the source tree.
+	if isSourceTree(moduleRoot) {
+		goModStr += "\nreplace github.com/asymmetric-effort/go-notebook => " + moduleRoot + "\n"
+	}
 	os.WriteFile(goModPath, []byte(goModStr), 0o644)
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
@@ -1601,4 +1609,17 @@ func findModuleRoot() string {
 		return "."
 	}
 	return filepath.Dir(modFile)
+}
+
+// isSourceTree checks if the given directory is the go-notebook source tree
+// by looking for a go.mod file with the correct module path.
+func isSourceTree(dir string) bool {
+	if dir == "." {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), "module github.com/asymmetric-effort/go-notebook")
 }
