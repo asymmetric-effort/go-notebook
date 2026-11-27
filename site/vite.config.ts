@@ -39,7 +39,7 @@ export default defineConfig({
   base: '/',
   plugins: [
     specifyJsSeoPlugin({
-      siteUrl: 'https://go-notebooks.asymmetric-effort.com',
+      siteUrl: 'https://go-notebook.asymmetric-effort.com',
       title: 'go-notebook',
       description:
         'A Jupyter-like notebook built in Go, with Go as the cell language. ' +
