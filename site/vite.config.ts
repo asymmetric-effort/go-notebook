@@ -1,7 +1,22 @@
 import { defineConfig } from 'vite';
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
+import { execSync } from 'child_process';
 import { specifyJsSeoPlugin, specifyJsNoscriptPlugin } from '@asymmetric-effort/specifyjs/build';
+
+// Resolve version from git tag or GITHUB_REF environment variable.
+function resolveVersion(): string {
+  if (process.env.GITHUB_REF?.startsWith('refs/tags/v')) {
+    return process.env.GITHUB_REF.replace('refs/tags/v', '');
+  }
+  try {
+    return execSync('git describe --tags --abbrev=0 --match "v*"', { encoding: 'utf-8' }).trim().replace(/^v/, '');
+  } catch {
+    return '0.0.0';
+  }
+}
+
+const VERSION = resolveVersion();
 
 // Load generated content for noscript fallback (built by prebuild script)
 const contentPath = resolve(__dirname, 'src/generated/content.json');
@@ -37,6 +52,9 @@ const allRoutes = [
 
 export default defineConfig({
   base: '/',
+  define: {
+    __APP_VERSION__: JSON.stringify(VERSION),
+  },
   plugins: [
     specifyJsSeoPlugin({
       siteUrl: 'https://go-notebook.asymmetric-effort.com',
