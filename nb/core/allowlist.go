@@ -54,7 +54,7 @@ func IsRefusedAttribute(attr string) bool {
 }
 
 // IsJavascriptURL checks if a URL uses a dangerous scheme (javascript:,
-// vbscript:, data:text/html). These can execute code when loaded.
+// vbscript:, data:). These can execute code when loaded.
 func IsJavascriptURL(url string) bool {
 	trimmed := strings.TrimSpace(strings.ToLower(url))
 	switch {
@@ -62,7 +62,7 @@ func IsJavascriptURL(url string) bool {
 		return true
 	case strings.HasPrefix(trimmed, "vbscript:"):
 		return true
-	case strings.HasPrefix(trimmed, "data:text/html"):
+	case strings.HasPrefix(trimmed, "data:"):
 		return true
 	default:
 		return false
