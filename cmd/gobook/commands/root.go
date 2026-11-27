@@ -189,8 +189,15 @@ var serveCmd = &cobra.Command{
 	Short: "Start the notebook editor server",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		absPath, err := filepath.Abs(args[0])
+		if err != nil {
+			return fmt.Errorf("resolve path: %w", err)
+		}
+		if _, err := os.Stat(absPath); err != nil {
+			return fmt.Errorf("notebook not found: %s", absPath)
+		}
 		addr := fmt.Sprintf("%s:%d", serveHost, servePort)
-		srv := server.New(args[0], addr)
+		srv := server.New(absPath, addr)
 		return srv.ListenAndServe()
 	},
 }
