@@ -308,7 +308,7 @@ func TestEditorEndpoint(t *testing.T) {
 	path := testNotebook(t)
 	srv := New(path, ":0")
 
-	r := httptest.NewRequest(http.MethodGet, "/api/editor", nil)
+	r := httptest.NewRequest(http.MethodGet, "/editor", nil)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, r)
 
@@ -327,7 +327,7 @@ func TestEditorMethodNotAllowed(t *testing.T) {
 	path := testNotebook(t)
 	srv := New(path, ":0")
 
-	r := httptest.NewRequest(http.MethodPost, "/api/editor", nil)
+	r := httptest.NewRequest(http.MethodPost, "/editor", nil)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, r)
 
@@ -953,7 +953,7 @@ func TestCSPHeaderOnEditor(t *testing.T) {
 
 	s := New(notebook, ":0")
 
-	req := httptest.NewRequest("GET", "/api/editor", nil)
+	req := httptest.NewRequest("GET", "/editor", nil)
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
 
@@ -1821,7 +1821,7 @@ func TestHandleEditorEmbeddedHTMLNotFound(t *testing.T) {
 	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
 
 	srv := New(notebook, ":0")
-	req := httptest.NewRequest(http.MethodGet, "/api/editor", nil)
+	req := httptest.NewRequest(http.MethodGet, "/editor", nil)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 
