@@ -14,6 +14,18 @@ class NotebookEditor {
         }
         const blocks = await resp.json();
         this.render(blocks);
+        // Update header with version.
+        try {
+            const statusResp = await fetch("/api/status");
+            if (statusResp.ok) {
+                const status = await statusResp.json();
+                const h1 = document.querySelector("h1");
+                if (h1 && status.version) {
+                    h1.textContent = `go-notebook editor (${status.version})`;
+                }
+            }
+        }
+        catch { /* ignore */ }
     }
     render(blocks) {
         this.container.innerHTML = "";

@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,19 @@ import (
 	"github.com/asymmetric-effort/go-notebook/nb/kernel"
 	"github.com/asymmetric-effort/go-notebook/nb/lsp"
 )
+
+// version is resolved from module build info or defaults to "dev".
+var version = resolveVersion()
+
+func resolveVersion() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		v := info.Main.Version
+		if strings.HasPrefix(v, "v") && !strings.Contains(v, "-0.") {
+			return v
+		}
+	}
+	return "dev"
+}
 
 //go:embed static
 var staticFiles embed.FS
@@ -145,6 +159,7 @@ type statusResponse struct {
 	Notebook string `json:"notebook"`
 	Cells    int    `json:"cells"`
 	OK       bool   `json:"ok"`
+	Version  string `json:"version"`
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -175,6 +190,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		Notebook: filepath.Base(s.notebookPath),
 		Cells:    cellCount,
 		OK:       true,
+		Version:  version,
 	})
 }
 
