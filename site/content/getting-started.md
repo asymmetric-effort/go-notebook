@@ -1,5 +1,13 @@
 # Getting Started
 
+## Prerequisites
+
+- **Go 1.27 or later** — required to compile notebooks into binaries
+- **A text editor** — any editor that supports Markdown will work
+
+No other system dependencies are required. The PDF renderer uses WebAssembly
+(wazero) and needs no C compiler or external libraries.
+
 ## Installation
 
 Install `gobook` using the Go toolchain:
@@ -14,78 +22,109 @@ Verify the installation:
 gobook version
 ```
 
-## Prerequisites
+## Hello World Example
 
-- **Go 1.27 or later** — the gobook binary is written in Go
-- **A text editor** — any editor that supports Markdown will work
+Download the complete example: [hello.md](/examples/hello.md)
 
-No other system dependencies are required. The PDF renderer uses WebAssembly
-(wazero) and needs no C compiler or external libraries.
+Or create a file called `hello.md` with the following content:
 
-## Your First Notebook
+```markdown
+# Hello World
 
-Create a file called `hello.md` with the following structure:
+This is a go-notebook. The prose sections are standard CommonMark
+Markdown and appear as-is in the rendered output.
+```
 
-- A Markdown heading and prose
-- A `go:defs` fenced code block with shared imports
-- A `go:notebook` fenced code block with executable code
-
-For example, the `go:defs` block would contain:
+The file starts with ordinary Markdown. Next, add a `go:defs` block
+for shared imports. This block is not executed directly — it provides
+definitions available to all cells in the notebook:
 
 ```go
-// Shared definitions available to all cells.
 import "fmt"
+import "runtime"
+import "time"
 ```
 
-And the `go:notebook` block would contain:
+The info string on the code fence must be `go:defs` (not plain `go`).
+
+Now add executable cells using `go:notebook` fences. Each cell runs
+in order and its printed output appears in the rendered report:
 
 ```go
-// Cells run in order and can produce output.
 fmt.Println("Hello from go-notebook!")
+fmt.Printf("Built with Go %s on %s/%s\n",
+    runtime.Version(), runtime.GOOS, runtime.GOARCH)
 ```
 
-## Running the Notebook
+Cells can be named using attributes for clearer error messages:
 
-Use `gobook run` for quick iteration:
+```go
+fmt.Printf("Report generated at: %s\n",
+    time.Now().Format(time.RFC1123))
+```
+
+The info string for these cells is `go:notebook` (optionally with
+`name=cellname`). You can add as many cells as you need, with
+Markdown prose between them.
+
+## Building and Running
+
+### Quick run (build, execute, clean up)
 
 ```bash
 gobook run hello.md -- --format html -o hello.html
 ```
 
-This builds a temporary binary from your notebook, executes it, and cleans up.
-The `--` separator passes flags to the generated binary.
+The `--` separator passes flags to the generated binary. Expected
+terminal output:
 
-## Building a Report Binary
+```text
+Hello from go-notebook!
+Built with Go go1.27.4 on linux/amd64
+Report generated at: Thu, 27 Nov 2026 12:00:00 UTC
+```
 
-Use `gobook build` to create a distributable executable:
+The file `hello.html` now contains a self-contained HTML report
+with the Markdown prose and cell output rendered together.
+
+### Build a standalone binary
 
 ```bash
 gobook build hello.md -o hello
 ```
 
-The resulting binary is self-contained. Send it to anyone and they can render
+This produces a `hello` binary (or `hello.exe` on Windows). The
+binary is self-contained — send it to anyone and they can render
 the report without installing Go or gobook:
 
 ```bash
-./hello --format pdf -o hello.pdf
 ./hello --format html -o hello.html
+./hello --format pdf -o hello.pdf
 ./hello --format markdown -o hello-rendered.md
 ```
 
+### Output formats
+
+| Format | Flag | Description |
+| ------ | ---- | ----------- |
+| HTML | `--format html` | Self-contained HTML with inline styles |
+| PDF | `--format pdf` | PDF rendered via Typst (zero cgo) |
+| Markdown | `--format markdown` | Markdown with output blocks filled in |
+
 ## Editor Mode
 
-Launch the browser-based notebook editor:
+Launch the browser-based notebook editor for interactive development:
 
 ```bash
 gobook serve hello.md
 ```
 
-This starts an LSP-powered editor with Go autocompletion, diagnostics, and
-hover documentation. See the [Editor](#/editor) page for details.
+This starts an LSP-powered editor with Go autocompletion, diagnostics,
+and hover documentation. See the [Editor](#/editor) page for details.
 
 ## Next Steps
 
-- **[User Guide](#/user-guide)** — Learn about cell types, attributes, and data modes
-- **[Charts](#/charts)** — Add line, bar, pie, and other charts to your notebooks
+- **[User Guide](#/user-guide)** — Cell types, attributes, and data modes
+- **[Charts](#/charts)** — Add line, bar, pie, and other charts
 - **[Encryption](#/encryption)** — Protect reports with post-quantum encryption
 - **[CLI Reference](#/cli)** — Full command documentation
