@@ -80,7 +80,7 @@ func New(notebookPath, addr string) *Server {
 	s.mux.HandleFunc("/api/run", s.handleRun)
 	s.mux.HandleFunc("/api/run/all", s.handleRunAll)
 	s.mux.HandleFunc("/api/run/state", s.handleRunState)
-	s.mux.HandleFunc("/api/editor", s.handleEditor)
+	s.mux.HandleFunc("/editor", s.handleEditor)
 	s.mux.HandleFunc("/api/chart.js", s.handleChartScript)
 	s.mux.HandleFunc("/api/lsp/diagnostics", s.handleLSPDiagnostics)
 	s.mux.HandleFunc("/api/lsp/completion", s.handleLSPCompletion)
@@ -92,6 +92,16 @@ func New(notebookPath, addr string) *Server {
 		panic(err)
 	}
 	s.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(sub))))
+
+	// Root path redirects to /editor. Register last because "/" is a
+	// catch-all in Go's ServeMux — unknown paths return 404.
+	s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		http.Redirect(w, r, "/editor", http.StatusFound)
+	})
 
 	return s
 }
