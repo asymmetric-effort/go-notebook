@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Asymmetric Effort, LLC. MIT License.
 class NotebookEditor {
     container;
+    activeSection = "notebook";
     constructor(container) {
         this.container = container;
     }
@@ -26,14 +27,211 @@ class NotebookEditor {
             }
         }
         catch { /* ignore */ }
+        // Build sidebar navigation (#299).
+        this.buildSidebar();
+        // Set up mobile menu toggle.
+        this.setupMobileMenu();
     }
+    // --- Sidebar navigation (#299) ---
+    buildSidebar() {
+        const sidebar = document.getElementById("sidebar");
+        if (!sidebar) return;
+        // Clear previous items (keep header).
+        const header = sidebar.querySelector(".sidebar-header");
+        sidebar.innerHTML = "";
+        if (header) sidebar.appendChild(header);
+        const items = [
+            { id: "notebook", label: "Notebook", icon: "\uD83D\uDCD3" },
+            { id: "secrets", label: "Secrets", icon: "\uD83D\uDD12" },
+            { id: "diagnostics", label: "Diagnostics", icon: "\uD83D\uDD0D" },
+        ];
+        for (const item of items) {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "sidebar-item" + (item.id === this.activeSection ? " active" : "");
+            btn.textContent = item.icon + " " + item.label;
+            btn.dataset["section"] = item.id;
+            btn.addEventListener("click", () => {
+                this.switchSection(item.id);
+            });
+            sidebar.appendChild(btn);
+        }
+        // Spacer pushes theme toggle to bottom.
+        const spacer = document.createElement("div");
+        spacer.className = "sidebar-spacer";
+        sidebar.appendChild(spacer);
+        // Dark mode toggle in sidebar footer (#298).
+        const footer = document.createElement("div");
+        footer.className = "sidebar-footer";
+        const themeBtn = document.createElement("button");
+        themeBtn.type = "button";
+        themeBtn.className = "theme-toggle";
+        themeBtn.id = "theme-toggle";
+        themeBtn.title = "Toggle dark mode";
+        themeBtn.textContent = document.documentElement.getAttribute("data-theme") === "dark" ? "\u2600\uFE0F" : "\uD83C\uDF19";
+        themeBtn.addEventListener("click", () => {
+            this.toggleTheme(themeBtn);
+        });
+        footer.appendChild(themeBtn);
+        sidebar.appendChild(footer);
+    }
+    switchSection(sectionId) {
+        this.activeSection = sectionId;
+        // Update sidebar active state.
+        const items = document.querySelectorAll(".sidebar-item");
+        for (const item of items) {
+            item.classList.toggle("active", item.dataset["section"] === sectionId);
+        }
+        // Show/hide sections.
+        const sections = this.container.querySelectorAll(".editor-section");
+        for (const sec of sections) {
+            sec.classList.toggle("active", sec.id === "section-" + sectionId);
+        }
+        // Close mobile menu on selection.
+        const sidebar = document.getElementById("sidebar");
+        if (sidebar) sidebar.classList.remove("open");
+    }
+    setupMobileMenu() {
+        const btn = document.getElementById("mobile-menu-btn");
+        const sidebar = document.getElementById("sidebar");
+        if (!btn || !sidebar) return;
+        btn.addEventListener("click", () => {
+            sidebar.classList.toggle("open");
+        });
+    }
+    // --- Dark mode toggle (#298) ---
+    toggleTheme(btn) {
+        const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+        if (isDark) {
+            document.documentElement.removeAttribute("data-theme");
+            localStorage.setItem("editor-theme", "light");
+            btn.textContent = "\uD83C\uDF19";
+        }
+        else {
+            document.documentElement.setAttribute("data-theme", "dark");
+            localStorage.setItem("editor-theme", "dark");
+            btn.textContent = "\u2600\uFE0F";
+        }
+    }
+    // --- Collapsible blocks (#300) ---
+    getCollapseState() {
+        try {
+            const raw = localStorage.getItem("editor-collapse-state");
+            if (raw) return JSON.parse(raw);
+        }
+        catch { /* ignore */ }
+        return {};
+    }
+    saveCollapseState(state) {
+        localStorage.setItem("editor-collapse-state", JSON.stringify(state));
+    }
+    wrapWithCollapse(section, heading, blockLine) {
+        // Create block header with collapse toggle.
+        const headerDiv = document.createElement("div");
+        headerDiv.className = "block-header";
+        // Move heading into header.
+        headerDiv.appendChild(heading);
+        const toggleBtn = document.createElement("button");
+        toggleBtn.type = "button";
+        toggleBtn.className = "collapse-toggle";
+        toggleBtn.title = "Toggle collapse";
+        headerDiv.appendChild(toggleBtn);
+        // Wrap remaining content in block-body.
+        const bodyDiv = document.createElement("div");
+        bodyDiv.className = "block-body";
+        // Move all children after heading into body.
+        while (section.firstChild) {
+            bodyDiv.appendChild(section.firstChild);
+        }
+        section.appendChild(headerDiv);
+        section.appendChild(bodyDiv);
+        // Restore collapse state.
+        const state = this.getCollapseState();
+        const key = String(blockLine);
+        const isCollapsed = state[key] === true;
+        if (isCollapsed) {
+            bodyDiv.classList.add("collapsed");
+            toggleBtn.textContent = "\u25B6";
+        }
+        else {
+            toggleBtn.textContent = "\u25BC";
+        }
+        // Click header to toggle.
+        const toggle = () => {
+            const collapsed = bodyDiv.classList.toggle("collapsed");
+            toggleBtn.textContent = collapsed ? "\u25B6" : "\u25BC";
+            const s = this.getCollapseState();
+            s[key] = collapsed;
+            this.saveCollapseState(s);
+        };
+        toggleBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            toggle();
+        });
+        headerDiv.addEventListener("click", (e) => {
+            // Don't toggle when clicking block-actions buttons.
+            if (e.target.closest(".block-actions")) return;
+            toggle();
+        });
+    }
+    collapseAll() {
+        const bodies = this.container.querySelectorAll(".block-body");
+        const state = this.getCollapseState();
+        for (const body of bodies) {
+            body.classList.add("collapsed");
+            const section = body.closest("section");
+            if (section) {
+                const line = section.dataset["line"] ?? section.dataset["blockLine"] ?? "";
+                if (line) state[line] = true;
+            }
+            const toggle = body.previousElementSibling?.querySelector(".collapse-toggle");
+            if (toggle) toggle.textContent = "\u25B6";
+        }
+        this.saveCollapseState(state);
+    }
+    expandAll() {
+        const bodies = this.container.querySelectorAll(".block-body");
+        const state = this.getCollapseState();
+        for (const body of bodies) {
+            body.classList.remove("collapsed");
+            const section = body.closest("section");
+            if (section) {
+                const line = section.dataset["line"] ?? section.dataset["blockLine"] ?? "";
+                if (line) state[line] = false;
+            }
+            const toggle = body.previousElementSibling?.querySelector(".collapse-toggle");
+            if (toggle) toggle.textContent = "\u25BC";
+        }
+        this.saveCollapseState(state);
+    }
+    // --- Rendering ---
     render(blocks) {
         this.container.innerHTML = "";
         if (!blocks || blocks.length === 0) {
-            this.container.appendChild(this.buildGetStarted());
+            // Wrap in notebook section even when empty.
+            const notebookSection = document.createElement("div");
+            notebookSection.className = "editor-section active";
+            notebookSection.id = "section-notebook";
+            notebookSection.appendChild(this.buildGetStarted());
+            this.container.appendChild(notebookSection);
+            // Secrets section.
+            const secretsSection = document.createElement("div");
+            secretsSection.className = "editor-section";
+            secretsSection.id = "section-secrets";
+            secretsSection.appendChild(this.buildSecretPrompt());
+            this.container.appendChild(secretsSection);
+            // Diagnostics section (empty placeholder).
+            const diagSection = document.createElement("div");
+            diagSection.className = "editor-section";
+            diagSection.id = "section-diagnostics";
+            this.container.appendChild(diagSection);
             return;
         }
-        // Run All button at the top.
+        // --- Notebook section ---
+        const notebookSection = document.createElement("div");
+        notebookSection.className = "editor-section" + (this.activeSection === "notebook" ? " active" : "");
+        notebookSection.id = "section-notebook";
+        // Toolbar: Run All + collapse controls (#300).
         const toolbar = document.createElement("div");
         toolbar.className = "toolbar";
         const runAllBtn = document.createElement("button");
@@ -47,32 +245,56 @@ class NotebookEditor {
         });
         toolbar.appendChild(runAllBtn);
         toolbar.appendChild(runAllStatus);
-        this.container.appendChild(toolbar);
-        // Secret prompt section.
-        this.container.appendChild(this.buildSecretPrompt());
+        // Collapse toolbar (#300).
+        const collapseToolbar = document.createElement("div");
+        collapseToolbar.className = "collapse-toolbar";
+        const expandAllBtn = document.createElement("button");
+        expandAllBtn.type = "button";
+        expandAllBtn.textContent = "Expand All";
+        expandAllBtn.addEventListener("click", () => { this.expandAll(); });
+        const collapseAllBtn = document.createElement("button");
+        collapseAllBtn.type = "button";
+        collapseAllBtn.textContent = "Collapse All";
+        collapseAllBtn.addEventListener("click", () => { this.collapseAll(); });
+        collapseToolbar.appendChild(expandAllBtn);
+        collapseToolbar.appendChild(collapseAllBtn);
+        toolbar.appendChild(collapseToolbar);
+        notebookSection.appendChild(toolbar);
         // Insert toolbar at the top (before first block).
-        this.container.appendChild(this.buildInsertToolbar(0));
+        notebookSection.appendChild(this.buildInsertToolbar(0));
         for (let i = 0; i < blocks.length; i++) {
             const block = blocks[i];
             const isFirst = i === 0;
             const isLast = i === blocks.length - 1;
             switch (block.kind) {
                 case "prose":
-                    this.container.appendChild(this.buildProseForm(block, isFirst, isLast));
+                    notebookSection.appendChild(this.buildProseForm(block, isFirst, isLast));
                     break;
                 case "cell":
-                    this.container.appendChild(this.buildCellForm(block, isFirst, isLast));
+                    notebookSection.appendChild(this.buildCellForm(block, isFirst, isLast));
                     break;
                 case "defs":
-                    this.container.appendChild(this.buildDefsBlock(block, isFirst, isLast));
+                    notebookSection.appendChild(this.buildDefsBlock(block, isFirst, isLast));
                     break;
                 case "output":
-                    this.container.appendChild(this.buildOutputBlock(block, isFirst, isLast));
+                    notebookSection.appendChild(this.buildOutputBlock(block, isFirst, isLast));
                     break;
             }
             // Insert toolbar after each block.
-            this.container.appendChild(this.buildInsertToolbar(block.end_line));
+            notebookSection.appendChild(this.buildInsertToolbar(block.end_line));
         }
+        this.container.appendChild(notebookSection);
+        // --- Secrets section (#299) ---
+        const secretsSection = document.createElement("div");
+        secretsSection.className = "editor-section" + (this.activeSection === "secrets" ? " active" : "");
+        secretsSection.id = "section-secrets";
+        secretsSection.appendChild(this.buildSecretPrompt());
+        this.container.appendChild(secretsSection);
+        // --- Diagnostics section (#299) ---
+        const diagSection = document.createElement("div");
+        diagSection.className = "editor-section" + (this.activeSection === "diagnostics" ? " active" : "");
+        diagSection.id = "section-diagnostics";
+        this.container.appendChild(diagSection);
         // Load initial cell states and diagnostics.
         void this.refreshStaleMarkers();
         void this.refreshDiagnostics();
@@ -309,20 +531,21 @@ class NotebookEditor {
             for (const el of existing) {
                 el.remove();
             }
-            // Show diagnostics panel if there are any.
-            let panel = document.getElementById("diagnostics-panel");
-            if (!panel) {
-                panel = document.createElement("div");
-                panel.id = "diagnostics-panel";
-                panel.className = "diagnostics-panel";
-                this.container.insertBefore(panel, this.container.firstChild);
-            }
+            // Find or create diagnostics section content.
+            const diagContainer = document.getElementById("section-diagnostics");
+            if (!diagContainer) return;
+            // Clear previous content.
+            diagContainer.textContent = "";
+            const panel = document.createElement("div");
+            panel.id = "diagnostics-panel";
+            panel.className = "diagnostics-panel";
             if (diags.length === 0) {
-                panel.style.display = "none";
+                const emptyMsg = document.createElement("p");
+                emptyMsg.textContent = "No diagnostics. All clear.";
+                emptyMsg.style.color = "var(--text-muted)";
+                diagContainer.appendChild(emptyMsg);
                 return;
             }
-            panel.style.display = "block";
-            panel.textContent = "";
             const heading = document.createElement("h3");
             heading.textContent = "Diagnostics (" + diags.length + ")";
             panel.appendChild(heading);
@@ -332,13 +555,14 @@ class NotebookEditor {
                 div.textContent = (d.line > 0 ? "Line " + d.line + ": " : "") + d.message;
                 panel.appendChild(div);
             }
+            diagContainer.appendChild(panel);
         }
         catch {
             // Ignore diagnostic fetch errors.
         }
     }
     async runAll(status) {
-        status.textContent = " Running all cells…";
+        status.textContent = " Running all cells\u2026";
         status.className = "status";
         try {
             const resp = await fetch("/api/run/all", { method: "POST" });
@@ -401,11 +625,15 @@ class NotebookEditor {
     buildSecretPrompt() {
         const section = document.createElement("section");
         section.className = "block secret-block";
-        section.style.display = "none"; // Hidden by default, shown when needed.
         section.id = "secret-prompt";
         const heading = document.createElement("h3");
-        heading.textContent = "Secret";
+        heading.textContent = "Set Secret";
         section.appendChild(heading);
+        const desc = document.createElement("p");
+        desc.textContent = "Secrets are stored in memory only and never written to disk.";
+        desc.style.color = "var(--text-muted)";
+        desc.style.fontSize = "0.85rem";
+        section.appendChild(desc);
         const status = document.createElement("p");
         status.className = "status";
         section.appendChild(status);
@@ -438,8 +666,6 @@ class NotebookEditor {
             void this.submitSecret(nameInput, valueInput, status);
         });
         section.appendChild(submitBtn);
-        // Always visible toggle.
-        section.style.display = "block";
         return section;
     }
     async submitSecret(nameInput, valueInput, status) {
@@ -450,7 +676,7 @@ class NotebookEditor {
             status.className = "status error";
             return;
         }
-        status.textContent = "Setting…";
+        status.textContent = "Setting\u2026";
         status.className = "status";
         try {
             const resp = await fetch("/api/secrets", {
@@ -479,6 +705,7 @@ class NotebookEditor {
     buildProseForm(block, isFirst = false, isLast = false) {
         const section = document.createElement("section");
         section.className = "block prose-block";
+        section.dataset["blockLine"] = String(block.line);
         const heading = document.createElement("h3");
         heading.appendChild(this.buildBlockActions(block, isFirst, isLast));
         heading.appendChild(document.createTextNode("Prose (line " + block.line + ")"));
@@ -499,10 +726,12 @@ class NotebookEditor {
             void this.saveProse(block.line, ta, status);
         });
         section.appendChild(saveBtn);
+        // Wrap with collapsible (#300).
+        this.wrapWithCollapse(section, heading, block.line);
         return section;
     }
     async saveProse(line, ta, status) {
-        status.textContent = "Saving…";
+        status.textContent = "Saving\u2026";
         status.className = "status";
         const req = {
             line,
@@ -592,10 +821,12 @@ class NotebookEditor {
         section.appendChild(btnRow);
         section.appendChild(displayArea);
         section.appendChild(outputArea);
+        // Wrap with collapsible (#300).
+        this.wrapWithCollapse(section, heading, block.line);
         return section;
     }
     async runCell(name, status, outputArea, displayArea) {
-        status.textContent = "Running…";
+        status.textContent = "Running\u2026";
         status.className = "status";
         displayArea.style.display = "none";
         displayArea.textContent = "";
@@ -728,7 +959,7 @@ class NotebookEditor {
         }
     }
     async saveCell(section, line, status, heading) {
-        status.textContent = "Saving…";
+        status.textContent = "Saving\u2026";
         status.className = "status";
         const req = {
             line,
@@ -768,6 +999,7 @@ class NotebookEditor {
     buildDefsBlock(block, isFirst = false, isLast = false) {
         const section = document.createElement("section");
         section.className = "block defs-block";
+        section.dataset["blockLine"] = String(block.line);
         const heading = document.createElement("h3");
         heading.appendChild(this.buildBlockActions(block, isFirst, isLast));
         heading.appendChild(document.createTextNode("Definitions (line " + block.line + ")"));
@@ -775,11 +1007,14 @@ class NotebookEditor {
         const pre = document.createElement("pre");
         pre.textContent = block.body;
         section.appendChild(pre);
+        // Wrap with collapsible (#300).
+        this.wrapWithCollapse(section, heading, block.line);
         return section;
     }
     buildOutputBlock(block, isFirst = false, isLast = false) {
         const section = document.createElement("section");
         section.className = "block output-block";
+        section.dataset["blockLine"] = String(block.line);
         const heading = document.createElement("h3");
         heading.appendChild(this.buildBlockActions(block, isFirst, isLast));
         heading.appendChild(document.createTextNode("Output (line " + block.line + ")"));
@@ -787,6 +1022,8 @@ class NotebookEditor {
         const pre = document.createElement("pre");
         pre.textContent = block.body;
         section.appendChild(pre);
+        // Wrap with collapsible (#300).
+        this.wrapWithCollapse(section, heading, block.line);
         return section;
     }
     // --- Helpers ---

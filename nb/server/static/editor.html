@@ -3,108 +3,260 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
 <title>go-notebook editor</title>
 <style>
+  /* Theme CSS variables (#298) */
+  :root {
+    --bg-primary: #ffffff; --bg-secondary: #f8fafc; --bg-tertiary: #f1f5f9;
+    --text-primary: #0f172a; --text-secondary: #1f2937; --text-muted: #64748b;
+    --accent: #3b82f6; --border: #e2e8f0;
+    --code-bg: #1e293b; --code-text: #e2e8f0;
+    --success: #198754; --danger: #dc3545; --warning: #ffc107;
+    --btn-primary: #3b82f6; --btn-primary-hover: #2563eb;
+    --btn-success: #198754; --btn-success-hover: #157347;
+    --btn-danger: #dc3545; --btn-danger-hover: #b02a37;
+    --input-border: #e2e8f0; --input-bg: var(--bg-primary);
+    --block-bg: var(--bg-primary);
+    --insert-btn-bg: #e9ecef; --insert-btn-color: #495057; --insert-btn-border: #ced4da;
+    --insert-btn-hover: #dee2e6;
+  }
+  [data-theme="dark"] {
+    --bg-primary: #0f172a; --bg-secondary: #1e293b; --bg-tertiary: #334155;
+    --text-primary: #f1f5f9; --text-secondary: #e2e8f0; --text-muted: #94a3b8;
+    --accent: #60a5fa; --border: #334155;
+    --code-bg: #0f172a; --code-text: #e2e8f0;
+    --success: #4ade80; --danger: #f87171; --warning: #fbbf24;
+    --btn-primary: #60a5fa; --btn-primary-hover: #3b82f6;
+    --btn-success: #4ade80; --btn-success-hover: #22c55e;
+    --btn-danger: #f87171; --btn-danger-hover: #ef4444;
+    --input-border: #475569; --input-bg: #1e293b;
+    --block-bg: #1e293b;
+    --insert-btn-bg: #334155; --insert-btn-color: #94a3b8; --insert-btn-border: #475569;
+    --insert-btn-hover: #475569;
+  }
+
   *, *::before, *::after { box-sizing: border-box; }
   body {
     font-family: system-ui, sans-serif;
-    max-width: 900px;
-    margin: 0 auto;
-    padding: 1.5rem;
-    background: #f8f9fa;
-    color: #212529;
+    margin: 0;
+    padding: 0;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
   }
-  h1 { margin-bottom: 1.5rem; font-size: 1.6rem; }
+
+  /* Sidebar layout (#299) */
+  .editor-layout { display: flex; min-height: 100vh; }
+  .editor-sidebar {
+    width: 220px; min-width: 220px;
+    border-right: 1px solid var(--border);
+    background: var(--bg-secondary);
+    padding: 1rem 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .sidebar-header {
+    padding: 0.75rem 1.25rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .sidebar-item {
+    display: block; width: 100%;
+    padding: 10px 20px;
+    border: none; background: none;
+    text-align: left; cursor: pointer;
+    color: var(--text-muted);
+    font-size: 14px;
+    font-family: inherit;
+  }
+  .sidebar-item:hover { background: var(--bg-tertiary); }
+  .sidebar-item.active { color: var(--accent); font-weight: 600; background: var(--bg-tertiary); }
+  .sidebar-spacer { flex: 1; }
+  .sidebar-footer { padding: 0.75rem 1.25rem; }
+  .editor-main {
+    flex: 1;
+    max-width: 900px;
+    padding: 1.5rem;
+  }
+  .mobile-menu-btn {
+    display: none;
+    position: fixed; top: 0.75rem; left: 0.75rem; z-index: 100;
+    background: var(--btn-primary); color: #fff;
+    border: none; border-radius: 4px; padding: 0.4rem 0.75rem;
+    cursor: pointer; font-size: 1.2rem;
+  }
+  @media (max-width: 768px) {
+    .editor-sidebar { display: none; position: fixed; top: 0; left: 0; bottom: 0; z-index: 99; }
+    .editor-sidebar.open { display: flex; }
+    .mobile-menu-btn { display: block; }
+    .editor-main { padding-top: 3rem; }
+  }
+
+  /* Section containers for sidebar navigation */
+  .editor-section { display: none; }
+  .editor-section.active { display: block; }
+
+  h1 { margin-bottom: 1.5rem; font-size: 1.6rem; color: var(--text-primary); }
   .block {
-    background: #fff;
-    border: 1px solid #dee2e6;
+    background: var(--block-bg);
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 1.25rem;
     margin-bottom: 1.5rem;
   }
-  .cell-block { border-left: 4px solid #0d6efd; }
-  .prose-block { border-left: 4px solid #198754; }
-  .defs-block { border-left: 4px solid #6c757d; }
-  .output-block { border-left: 4px solid #ffc107; opacity: 0.7; }
-  .block h2, .block h3 { margin: 0 0 0.75rem; font-size: 1.1rem; }
-  .prose-editor { width: 100%; min-height: 80px; font-size: 0.95rem; padding: 0.5rem; border: 1px solid #ced4da; border-radius: 4px; resize: vertical; }
-  .defs-block pre, .output-block pre { background: #f1f3f5; padding: 0.5rem; border-radius: 4px; font-size: 0.85rem; overflow-x: auto; }
+  .cell-block { border-left: 4px solid var(--accent); }
+  .prose-block { border-left: 4px solid var(--success); }
+  .defs-block { border-left: 4px solid var(--text-muted); }
+  .output-block { border-left: 4px solid var(--warning); opacity: 0.7; }
+  .block h2, .block h3 { margin: 0 0 0.75rem; font-size: 1.1rem; color: var(--text-primary); }
+  .prose-editor {
+    width: 100%; min-height: 80px; font-size: 0.95rem;
+    padding: 0.5rem; border: 1px solid var(--input-border);
+    border-radius: 4px; resize: vertical;
+    background: var(--input-bg); color: var(--text-primary);
+  }
+  .defs-block pre, .output-block pre {
+    background: var(--bg-tertiary); padding: 0.5rem;
+    border-radius: 4px; font-size: 0.85rem; overflow-x: auto;
+    color: var(--text-secondary);
+  }
   .field { display: flex; flex-direction: column; margin-bottom: 0.75rem; }
-  .field label { font-size: 0.8rem; font-weight: 600; margin-bottom: 0.25rem; color: #495057; }
+  .field label { font-size: 0.8rem; font-weight: 600; margin-bottom: 0.25rem; color: var(--text-muted); }
   .field input, .field select {
     padding: 0.35rem 0.5rem;
-    border: 1px solid #ced4da;
+    border: 1px solid var(--input-border);
     border-radius: 4px;
     font-size: 0.9rem;
+    background: var(--input-bg); color: var(--text-primary);
   }
   .field textarea {
     padding: 0.5rem;
-    border: 1px solid #ced4da;
+    border: 1px solid var(--input-border);
     border-radius: 4px;
     font-size: 0.9rem;
     resize: vertical;
+    background: var(--input-bg); color: var(--text-primary);
   }
   .field textarea.mono { font-family: monospace; }
   button {
     padding: 0.4rem 1rem;
-    background: #0d6efd;
+    background: var(--btn-primary);
     color: #fff;
     border: none;
     border-radius: 4px;
     cursor: pointer;
     font-size: 0.9rem;
   }
-  button:hover { background: #0b5ed7; }
-  .toolbar { margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; }
-  .run-all-btn { background: #198754; }
-  .run-all-btn:hover { background: #157347; }
-  .run-btn { background: #198754; }
-  .run-btn:hover { background: #157347; }
+  button:hover { background: var(--btn-primary-hover); }
+  .toolbar { margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .run-all-btn { background: var(--btn-success); }
+  .run-all-btn:hover { background: var(--btn-success-hover); }
+  .run-btn { background: var(--btn-success); }
+  .run-btn:hover { background: var(--btn-success-hover); }
   .btn-row { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
-  .cell-output { background: #f1f3f5; padding: 0.5rem; border-radius: 4px; font-size: 0.85rem; overflow-x: auto; margin-top: 0.5rem; border-left: 3px solid #0d6efd; white-space: pre-wrap; }
-  .cell-errors { border-left-color: #dc3545; background: #fff5f5; }
-  .error-entry { padding: 0.25rem 0; color: #842029; }
+  .cell-output {
+    background: var(--bg-tertiary); padding: 0.5rem;
+    border-radius: 4px; font-size: 0.85rem; overflow-x: auto;
+    margin-top: 0.5rem; border-left: 3px solid var(--accent);
+    white-space: pre-wrap; color: var(--text-secondary);
+  }
+  .cell-errors { border-left-color: var(--danger); background: var(--bg-tertiary); }
+  .error-entry { padding: 0.25rem 0; color: var(--danger); }
   .error-compile { font-family: monospace; }
-  .error-timeout { color: #856404; }
-  .error-panic { color: #842029; font-weight: 600; }
+  .error-timeout { color: var(--warning); }
+  .error-panic { color: var(--danger); font-weight: 600; }
   .cell-marker { font-size: 0.8rem; font-weight: normal; margin-left: 0.5rem; }
-  .cell-block.stale { border-left-color: #ffc107; }
-  .cell-block.stale .cell-marker { color: #856404; }
-  .cell-block.failed { border-left-color: #dc3545; }
-  .cell-block.failed .cell-marker { color: #dc3545; }
+  .cell-block.stale { border-left-color: var(--warning); }
+  .cell-block.stale .cell-marker { color: var(--warning); }
+  .cell-block.failed { border-left-color: var(--danger); }
+  .cell-block.failed .cell-marker { color: var(--danger); }
   .cell-display { margin-top: 0.5rem; }
-  .display-text { background: #f8f9fa; padding: 0.5rem; border-radius: 4px; font-size: 0.9rem; border-left: 3px solid #198754; }
+  .display-text {
+    background: var(--bg-tertiary); padding: 0.5rem;
+    border-radius: 4px; font-size: 0.9rem;
+    border-left: 3px solid var(--success);
+    color: var(--text-secondary);
+  }
   .display-chart { margin: 0.5rem 0; }
   .display-chart svg { max-width: 100%; height: auto; }
   .display-image { max-width: 100%; height: auto; margin: 0.5rem 0; border-radius: 4px; }
-  .diagnostics-panel { background: #fff5f5; border: 1px solid #dc3545; border-radius: 6px; padding: 1rem; margin-bottom: 1.5rem; }
-  .diagnostics-panel h3 { margin: 0 0 0.5rem; font-size: 1rem; color: #842029; }
+  .diagnostics-panel {
+    background: var(--bg-tertiary); border: 1px solid var(--danger);
+    border-radius: 6px; padding: 1rem; margin-bottom: 1.5rem;
+  }
+  .diagnostics-panel h3 { margin: 0 0 0.5rem; font-size: 1rem; color: var(--danger); }
   .diagnostic { font-size: 0.85rem; padding: 0.15rem 0; font-family: monospace; }
-  .diagnostic-error { color: #842029; }
-  .diagnostic-warning { color: #856404; }
-  .diagnostic-info { color: #0c5460; }
+  .diagnostic-error { color: var(--danger); }
+  .diagnostic-warning { color: var(--warning); }
+  .diagnostic-info { color: var(--accent); }
   .secret-block { border-left: 4px solid #6f42c1; }
   .secret-block input[type="password"] { font-family: monospace; letter-spacing: 0.2em; }
   .insert-toolbar { display: flex; gap: 0.5rem; padding: 0.5rem 0; justify-content: center; }
-  .insert-toolbar button { background: #e9ecef; color: #495057; border: 1px solid #ced4da; font-size: 0.8rem; padding: 0.25rem 0.75rem; }
-  .insert-toolbar button:hover { background: #dee2e6; }
+  .insert-toolbar button {
+    background: var(--insert-btn-bg); color: var(--insert-btn-color);
+    border: 1px solid var(--insert-btn-border); font-size: 0.8rem; padding: 0.25rem 0.75rem;
+  }
+  .insert-toolbar button:hover { background: var(--insert-btn-hover); }
   .block-actions { display: flex; gap: 0.25rem; float: right; }
-  .block-actions button { background: transparent; color: #6c757d; border: 1px solid #dee2e6; font-size: 0.75rem; padding: 0.15rem 0.5rem; }
-  .block-actions .delete-btn { color: #dc3545; border-color: #dc3545; }
-  .block-actions .delete-btn:hover { background: #dc3545; color: #fff; }
+  .block-actions button {
+    background: transparent; color: var(--text-muted);
+    border: 1px solid var(--border); font-size: 0.75rem; padding: 0.15rem 0.5rem;
+  }
+  .block-actions .delete-btn { color: var(--danger); border-color: var(--danger); }
+  .block-actions .delete-btn:hover { background: var(--danger); color: #fff; }
   .get-started { text-align: center; padding: 3rem 1rem; }
-  .get-started h2 { margin-bottom: 1rem; color: #495057; }
-  .get-started p { margin-bottom: 1.5rem; color: #6c757d; }
-  .get-started .starter-btn { background: #198754; font-size: 1rem; padding: 0.6rem 1.5rem; margin-bottom: 1rem; }
+  .get-started h2 { margin-bottom: 1rem; color: var(--text-muted); }
+  .get-started p { margin-bottom: 1.5rem; color: var(--text-muted); }
+  .get-started .starter-btn { background: var(--btn-success); font-size: 1rem; padding: 0.6rem 1.5rem; margin-bottom: 1rem; }
   .status { font-size: 0.85rem; min-height: 1.2em; margin: 0 0 0.75rem; }
-  .status.ok { color: #198754; }
-  .status.error { color: #dc3545; }
+  .status.ok { color: var(--success); }
+  .status.error { color: var(--danger); }
+
+  /* Dark mode toggle (#298) */
+  .theme-toggle {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-muted); cursor: pointer; padding: 0.3rem 0.6rem;
+    border-radius: 4px; font-size: 1rem; line-height: 1;
+  }
+  .theme-toggle:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+
+  /* Collapsible blocks (#300) */
+  .block-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+  .block-header h2, .block-header h3 { margin: 0; }
+  .block-header .collapse-toggle {
+    background: none; border: none; cursor: pointer;
+    color: var(--text-muted); font-size: 14px; padding: 4px 8px;
+    flex-shrink: 0;
+  }
+  .block-header .collapse-toggle:hover { color: var(--text-primary); }
+  .block-body { transition: max-height 0.2s ease-out; overflow: hidden; }
+  .block-body.collapsed { max-height: 0 !important; padding: 0; overflow: hidden; }
+  .collapse-toolbar { display: flex; gap: 0.5rem; }
+  .collapse-toolbar button {
+    background: var(--insert-btn-bg); color: var(--insert-btn-color);
+    border: 1px solid var(--insert-btn-border); font-size: 0.8rem; padding: 0.25rem 0.75rem;
+  }
+  .collapse-toolbar button:hover { background: var(--insert-btn-hover); }
 </style>
 </head>
 <body>
-<h1>go-notebook editor</h1>
-<div id="notebook">Loading…</div>
+<script>
+(function(){var s=localStorage.getItem('editor-theme');if(s==='dark'||(!s&&matchMedia('(prefers-color-scheme:dark)').matches))document.documentElement.setAttribute('data-theme','dark');})();
+</script>
+<button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Toggle menu">&#9776;</button>
+<div class="editor-layout">
+  <nav class="editor-sidebar" id="sidebar">
+    <div class="sidebar-header">Navigation</div>
+  </nav>
+  <div class="editor-main">
+    <h1>go-notebook editor</h1>
+    <div id="notebook">Loading&hellip;</div>
+  </div>
+</div>
 <script type="module" src="/static/editor.js"></script>
 </body>
 </html>
