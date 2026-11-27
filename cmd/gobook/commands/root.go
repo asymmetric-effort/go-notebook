@@ -23,9 +23,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// version is set at build time via ldflags.
+var version = "dev"
+
 var rootCmd = &cobra.Command{
 	Use:           "gobook",
 	Short:         "Go notebook compiler and runner",
+	Version:       version,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }

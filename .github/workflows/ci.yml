@@ -148,25 +148,25 @@ jobs:
           GOOS: linux
           GOARCH: amd64
           CGO_ENABLED: 0
-        run: go build -o dist/gobook-linux-amd64 ./cmd/gobook
+        run: go build -ldflags "-X github.com/asymmetric-effort/go-notebook/cmd/gobook/commands.version=${{ steps.version.outputs.version }}" -o dist/gobook-linux-amd64 ./cmd/gobook
       - name: Build linux/arm64
         env:
           GOOS: linux
           GOARCH: arm64
           CGO_ENABLED: 0
-        run: go build -o dist/gobook-linux-arm64 ./cmd/gobook
+        run: go build -ldflags "-X github.com/asymmetric-effort/go-notebook/cmd/gobook/commands.version=${{ steps.version.outputs.version }}" -o dist/gobook-linux-arm64 ./cmd/gobook
       - name: Build windows/amd64
         env:
           GOOS: windows
           GOARCH: amd64
           CGO_ENABLED: 0
-        run: go build -o dist/gobook-windows-amd64.exe ./cmd/gobook
+        run: go build -ldflags "-X github.com/asymmetric-effort/go-notebook/cmd/gobook/commands.version=${{ steps.version.outputs.version }}" -o dist/gobook-windows-amd64.exe ./cmd/gobook
       - name: Build macos/arm64
         env:
           GOOS: darwin
           GOARCH: arm64
           CGO_ENABLED: 0
-        run: go build -o dist/gobook-darwin-arm64 ./cmd/gobook
+        run: go build -ldflags "-X github.com/asymmetric-effort/go-notebook/cmd/gobook/commands.version=${{ steps.version.outputs.version }}" -o dist/gobook-darwin-arm64 ./cmd/gobook
       - name: Package .deb (linux/amd64)
         run: |
           VERSION=${{ steps.version.outputs.version }}
