@@ -31,7 +31,7 @@ export function Header(): ReturnType<typeof createElement> {
         },
       },
       createElement('img', {
-        src: '/logo.svg',
+        src: '/logo.png',
         alt: 'go-notebook',
         width: '32',
         height: '32',

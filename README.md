@@ -1,5 +1,7 @@
 # go-notebook
 
+![go-notebook](logo.png)
+
 gobook is a Jupyter-like notebook built in Go, with Go as the cell language.
 Notebooks are CommonMark Markdown files that run iteratively in notebook mode
 or compile into standalone report binaries that render Markdown, HTML or PDF.
