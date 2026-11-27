@@ -490,7 +490,7 @@ func (s *Server) handleBlocks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := core.Parse(string(src))
-	var blocks []blockInfo
+	blocks := make([]blockInfo, 0)
 	for _, b := range result.Blocks {
 		bi := blockInfo{
 			Kind:    b.Kind.String(),
@@ -1118,7 +1118,7 @@ func (s *Server) handleLSPDiagnostics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var diags []lspDiagnostic
+	diags := make([]lspDiagnostic, 0)
 
 	// Run checker for rule violations.
 	result := core.Parse(string(src))
@@ -1168,7 +1168,7 @@ func (s *Server) handleLSPCompletion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := core.Parse(string(src))
-	var items []completionItem
+	items := make([]completionItem, 0)
 
 	// Add named cells and their exported fields.
 	for _, b := range result.Blocks {
