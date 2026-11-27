@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -3329,6 +3330,9 @@ func TestListenAndServeStartsAndStops(t *testing.T) {
 }
 
 func TestRunBatchMkdirTempError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("TMPDIR not supported on Windows")
+	}
 	dir := t.TempDir()
 	notebook := filepath.Join(dir, "test.md")
 	src := "```go:notebook name=test exported(val int)\nval = 1\n```\n"
@@ -3351,6 +3355,9 @@ func TestRunBatchMkdirTempError(t *testing.T) {
 }
 
 func TestRunSingleCellMkdirTempError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("TMPDIR not supported on Windows")
+	}
 	dir := t.TempDir()
 	notebook := filepath.Join(dir, "test.md")
 	src := "```go:notebook name=test exported(val int)\nval = 1\n```\n"
@@ -3786,6 +3793,9 @@ func TestMarkStaleAllCells(t *testing.T) {
 }
 
 func TestRunBatchTmpdirUnwritable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("TMPDIR not supported on Windows")
+	}
 	if os.Getuid() == 0 {
 		t.Skip("root bypasses permission checks")
 	}
@@ -3810,6 +3820,9 @@ func TestRunBatchTmpdirUnwritable(t *testing.T) {
 }
 
 func TestExecuteNotebookTmpdirUnwritable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("TMPDIR not supported on Windows")
+	}
 	if os.Getuid() == 0 {
 		t.Skip("root bypasses permission checks")
 	}
