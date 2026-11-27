@@ -1130,6 +1130,110 @@ func TestSecretsDelete(t *testing.T) {
 	}
 }
 
+func TestSecretsDeleteIndividual(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+
+	// Set two secrets.
+	s.mu.Lock()
+	s.secrets["test"] = "val1"
+	s.secrets["other"] = "val2"
+	s.mu.Unlock()
+
+	// Delete one secret by name.
+	body, _ := json.Marshal(secretRequest{Name: "test"})
+	req := httptest.NewRequest("DELETE", "/api/secrets", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("DELETE individual status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["status"] != "deleted" {
+		t.Errorf("expected status=deleted, got %q", resp["status"])
+	}
+
+	// Verify deleted.
+	_, ok := s.GetSecret("test")
+	if ok {
+		t.Error("secret 'test' should be deleted")
+	}
+
+	// Verify other secret still exists.
+	val, ok := s.GetSecret("other")
+	if !ok || val != "val2" {
+		t.Errorf("secret 'other' should still exist, got %q, %v", val, ok)
+	}
+}
+
+func TestSecretsDeleteNonexistent(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+
+	// Try to delete a secret that doesn't exist.
+	body, _ := json.Marshal(secretRequest{Name: "nonexistent"})
+	req := httptest.NewRequest("DELETE", "/api/secrets", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("DELETE nonexistent status = %d, want 404, body = %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if !strings.Contains(resp["error"], "secret not found") {
+		t.Errorf("expected 'secret not found' error, got %q", resp["error"])
+	}
+}
+
+func TestSecretsDeleteAllWithEmptyBody(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+
+	// Set secrets.
+	s.mu.Lock()
+	s.secrets["a"] = "1"
+	s.secrets["b"] = "2"
+	s.mu.Unlock()
+
+	// Delete all with empty body.
+	req := httptest.NewRequest("DELETE", "/api/secrets", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("DELETE all status = %d", w.Code)
+	}
+
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["status"] != "cleared" {
+		t.Errorf("expected status=cleared, got %q", resp["status"])
+	}
+
+	// Verify all cleared.
+	_, okA := s.GetSecret("a")
+	_, okB := s.GetSecret("b")
+	if okA || okB {
+		t.Error("all secrets should be cleared")
+	}
+}
+
 func TestSecretsEmptyName(t *testing.T) {
 	dir := t.TempDir()
 	notebook := filepath.Join(dir, "test.md")

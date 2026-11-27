@@ -287,7 +287,7 @@ class NotebookEditor {
       const secretsSection = document.createElement("div");
       secretsSection.className = "editor-section";
       secretsSection.id = "section-secrets";
-      secretsSection.appendChild(this.buildSecretPrompt());
+      secretsSection.appendChild(this.buildSecretsSection());
       this.container.appendChild(secretsSection);
 
       // Diagnostics section (empty placeholder).
@@ -367,7 +367,7 @@ class NotebookEditor {
     const secretsSection = document.createElement("div");
     secretsSection.className = "editor-section" + (this.activeSection === "secrets" ? " active" : "");
     secretsSection.id = "section-secrets";
-    secretsSection.appendChild(this.buildSecretPrompt());
+    secretsSection.appendChild(this.buildSecretsSection());
     this.container.appendChild(secretsSection);
 
     // --- Diagnostics section (#299) ---
@@ -730,15 +730,17 @@ class NotebookEditor {
     }
   }
 
-  // --- Secret prompt ---
+  // --- Secrets section ---
 
-  private buildSecretPrompt(): HTMLElement {
+  private buildSecretsSection(): HTMLElement {
+    const wrapper = document.createElement("div");
+    wrapper.id = "secrets-section";
+
     const section = document.createElement("section");
     section.className = "block secret-block";
-    section.id = "secret-prompt";
 
     const heading = document.createElement("h3");
-    heading.textContent = "Set Secret";
+    heading.textContent = "Secrets";
     section.appendChild(heading);
 
     const desc = document.createElement("p");
@@ -751,6 +753,20 @@ class NotebookEditor {
     status.className = "status";
     section.appendChild(status);
 
+    // Secret list.
+    const listLabel = document.createElement("label");
+    listLabel.textContent = "Current Secrets";
+    listLabel.style.fontWeight = "600";
+    listLabel.style.fontSize = "0.8rem";
+    listLabel.style.color = "var(--text-muted)";
+    section.appendChild(listLabel);
+
+    const secretList = document.createElement("ul");
+    secretList.className = "secret-list";
+    secretList.id = "secret-list";
+    section.appendChild(secretList);
+
+    // Add/Update form.
     const nameField = document.createElement("div");
     nameField.className = "field";
     const nameLabel = document.createElement("label");
@@ -775,21 +791,113 @@ class NotebookEditor {
     valueField.appendChild(valueInput);
     section.appendChild(valueField);
 
+    const btnRow = document.createElement("div");
+    btnRow.className = "btn-row";
+
     const submitBtn = document.createElement("button");
     submitBtn.type = "button";
     submitBtn.textContent = "Set Secret";
     submitBtn.addEventListener("click", () => {
-      void this.submitSecret(nameInput, valueInput, status);
+      void this.submitSecret(nameInput, valueInput, status, secretList);
     });
-    section.appendChild(submitBtn);
+    btnRow.appendChild(submitBtn);
 
-    return section;
+    const clearBtn = document.createElement("button");
+    clearBtn.type = "button";
+    clearBtn.textContent = "Clear All";
+    clearBtn.className = "clear-all-btn";
+    clearBtn.addEventListener("click", () => {
+      if (confirm("Clear ALL secrets? This cannot be undone.")) {
+        void this.clearAllSecrets(status, secretList);
+      }
+    });
+    btnRow.appendChild(clearBtn);
+
+    section.appendChild(btnRow);
+    wrapper.appendChild(section);
+
+    // Fetch and render the secret list on initial render.
+    void this.refreshSecretList(secretList);
+
+    return wrapper;
+  }
+
+  private async refreshSecretList(listEl: HTMLElement): Promise<void> {
+    try {
+      const resp = await fetch("/api/secrets");
+      if (!resp.ok) return;
+      const data: { secrets: string[] } = await resp.json() as { secrets: string[] };
+      const names = data.secrets ?? [];
+      listEl.innerHTML = "";
+      if (names.length === 0) {
+        const li = document.createElement("li");
+        li.textContent = "No secrets set.";
+        li.style.color = "var(--text-muted)";
+        li.style.fontStyle = "italic";
+        listEl.appendChild(li);
+        return;
+      }
+      for (const name of names) {
+        const li = document.createElement("li");
+        const span = document.createElement("span");
+        span.className = "secret-name";
+        span.textContent = name;
+        li.appendChild(span);
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.textContent = "Delete";
+        delBtn.className = "delete-secret-btn";
+        delBtn.addEventListener("click", () => {
+          void this.deleteSecret(name, listEl);
+        });
+        li.appendChild(delBtn);
+        listEl.appendChild(li);
+      }
+    } catch { /* ignore */ }
+  }
+
+  private async deleteSecret(name: string, listEl: HTMLElement): Promise<void> {
+    try {
+      const resp = await fetch("/api/secrets", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!resp.ok) {
+        const err: { error: string } = await resp.json() as { error: string };
+        alert("Error: " + err.error);
+        return;
+      }
+      void this.refreshSecretList(listEl);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      alert("Network error: " + msg);
+    }
+  }
+
+  private async clearAllSecrets(status: HTMLElement, listEl: HTMLElement): Promise<void> {
+    try {
+      const resp = await fetch("/api/secrets", { method: "DELETE" });
+      if (!resp.ok) {
+        status.textContent = "Error clearing secrets.";
+        status.className = "status error";
+        return;
+      }
+      status.textContent = "All secrets cleared.";
+      status.className = "status ok";
+      void this.refreshSecretList(listEl);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      status.textContent = "Network error: " + msg;
+      status.className = "status error";
+    }
   }
 
   private async submitSecret(
     nameInput: HTMLInputElement,
     valueInput: HTMLInputElement,
     status: HTMLElement,
+    listEl: HTMLElement,
   ): Promise<void> {
     const name = nameInput.value.trim();
     const value = valueInput.value;
@@ -822,6 +930,8 @@ class NotebookEditor {
       status.className = "status ok";
       // Clear the value input for security.
       valueInput.value = "";
+      // Refresh the list.
+      void this.refreshSecretList(listEl);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       status.textContent = "Network error: " + msg;

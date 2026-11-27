@@ -557,3 +557,62 @@ test.describe('Editor UI features', () => {
   });
 });
 
+test.describe('Secrets CRUD', () => {
+  test.beforeEach(() => { resetFixture(); });
+
+  test('create, list, delete individual secret via API', async ({ request }) => {
+    // Create a secret via PUT.
+    const putResp = await request.put('/api/secrets', {
+      data: { name: 'e2e_test_secret', value: 'secret_value_123' },
+    });
+    expect(putResp.ok()).toBe(true);
+
+    // List secrets via GET and verify name appears.
+    const getResp = await request.get('/api/secrets');
+    expect(getResp.ok()).toBe(true);
+    const getBody = await getResp.json();
+    expect(getBody.secrets).toContain('e2e_test_secret');
+    // Values must never appear.
+    expect(JSON.stringify(getBody)).not.toContain('secret_value_123');
+
+    // Delete individual secret via DELETE.
+    const delResp = await request.delete('/api/secrets', {
+      data: { name: 'e2e_test_secret' },
+    });
+    expect(delResp.ok()).toBe(true);
+    const delBody = await delResp.json();
+    expect(delBody.status).toBe('deleted');
+
+    // Verify secret is gone.
+    const getResp2 = await request.get('/api/secrets');
+    const getBody2 = await getResp2.json();
+    expect(getBody2.secrets).not.toContain('e2e_test_secret');
+  });
+
+  test('delete nonexistent secret returns 404', async ({ request }) => {
+    const resp = await request.delete('/api/secrets', {
+      data: { name: 'does_not_exist' },
+    });
+    expect(resp.status()).toBe(404);
+    const body = await resp.json();
+    expect(body.error).toContain('secret not found');
+  });
+
+  test('delete with empty body clears all secrets', async ({ request }) => {
+    // Create two secrets.
+    await request.put('/api/secrets', { data: { name: 's1', value: 'v1' } });
+    await request.put('/api/secrets', { data: { name: 's2', value: 'v2' } });
+
+    // Clear all.
+    const delResp = await request.delete('/api/secrets');
+    expect(delResp.ok()).toBe(true);
+    const delBody = await delResp.json();
+    expect(delBody.status).toBe('cleared');
+
+    // Verify all gone.
+    const getResp = await request.get('/api/secrets');
+    const getBody = await getResp.json();
+    expect(getBody.secrets.length).toBe(0);
+  });
+});
+
