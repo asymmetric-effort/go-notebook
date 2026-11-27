@@ -17,7 +17,7 @@ fmt.Println("hello from test")
 `;
 
 // Restore the fixture file before/after tests.
-function resetFixture() {
+function resetFixture(): void {
   fs.writeFileSync(FIXTURE_PATH, FIXTURE_CONTENT);
 }
 
