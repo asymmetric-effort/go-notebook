@@ -17,7 +17,7 @@ class NotebookEditor {
     }
     render(blocks) {
         this.container.innerHTML = "";
-        if (blocks.length === 0) {
+        if (!blocks || blocks.length === 0) {
             const p = document.createElement("p");
             p.textContent = "Empty notebook.";
             this.container.appendChild(p);

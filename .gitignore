@@ -36,6 +36,9 @@ Thumbs.db
 # Node (for TypeScript tooling)
 node_modules/
 
+# Playwright e2e
+nb/server/e2e/node_modules/
+
 # Docker test environments
 .testenv/
 
