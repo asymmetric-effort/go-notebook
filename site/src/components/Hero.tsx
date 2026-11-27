@@ -12,7 +12,7 @@ export function Hero(): ReturnType<typeof createElement> {
       },
     },
     createElement('img', {
-      src: '/logo.svg',
+      src: '/logo.png',
       alt: 'go-notebook',
       width: '96',
       height: '96',
