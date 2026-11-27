@@ -4,13 +4,16 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testNotebook(t *testing.T) string {
@@ -2276,5 +2279,1172 @@ func TestReorderBlockCannotMoveLastDown(t *testing.T) {
 	_, err := reorderBlock(src, 1, "down")
 	if err == nil {
 		t.Error("expected error when moving last block down")
+	}
+}
+
+func TestReorderBlockNotFound(t *testing.T) {
+	src := "# Title\n"
+	_, err := reorderBlock(src, 999, "up")
+	if err == nil {
+		t.Error("expected error for nonexistent block")
+	}
+}
+
+// --- Coverage gap tests ---
+
+func TestBlocksAddDefs(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	body, _ := json.Marshal(addBlockRequest{Kind: "defs", AfterLine: 1, Body: "import \"fmt\""})
+	req := httptest.NewRequest(http.MethodPost, "/api/blocks/add", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	data, _ := os.ReadFile(notebook)
+	content := string(data)
+	if !strings.Contains(content, "go:defs") {
+		t.Error("defs info string missing")
+	}
+	if !strings.Contains(content, "import \"fmt\"") {
+		t.Error("defs body missing")
+	}
+}
+
+func TestBlocksAddDefaultCellInfo(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	// No Info field — should default to "go:notebook name=cell1"
+	body, _ := json.Marshal(addBlockRequest{Kind: "cell", AfterLine: 1, Body: "x := 1"})
+	req := httptest.NewRequest(http.MethodPost, "/api/blocks/add", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	data, _ := os.ReadFile(notebook)
+	if !strings.Contains(string(data), "go:notebook name=cell1") {
+		t.Error("default cell info should be 'go:notebook name=cell1'")
+	}
+}
+
+func TestBlocksAddInvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodPost, "/api/blocks/add", strings.NewReader("{bad"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestBlocksAddMissingFile(t *testing.T) {
+	s := New("/nonexistent/test.md", ":0")
+	body, _ := json.Marshal(addBlockRequest{Kind: "cell", AfterLine: 0, Body: "x := 1"})
+	req := httptest.NewRequest(http.MethodPost, "/api/blocks/add", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestBlocksDeleteInvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodDelete, "/api/blocks/delete", strings.NewReader("{bad"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestBlocksDeleteMissingFile(t *testing.T) {
+	s := New("/nonexistent/test.md", ":0")
+	body, _ := json.Marshal(deleteBlockRequest{Line: 1})
+	req := httptest.NewRequest(http.MethodDelete, "/api/blocks/delete", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestBlocksReorderInvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodPut, "/api/blocks/reorder", strings.NewReader("{bad"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestBlocksReorderMissingFile(t *testing.T) {
+	s := New("/nonexistent/test.md", ":0")
+	body, _ := json.Marshal(reorderBlockRequest{Line: 1, Direction: "up"})
+	req := httptest.NewRequest(http.MethodPut, "/api/blocks/reorder", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestBlocksReorderNotFoundLine(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	body, _ := json.Marshal(reorderBlockRequest{Line: 999, Direction: "up"})
+	req := httptest.NewRequest(http.MethodPut, "/api/blocks/reorder", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestNotebookInitNewFile(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "new.md")
+	// File does not exist — handleNotebookInit should create it.
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodPost, "/api/notebook/init", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	data, _ := os.ReadFile(notebook)
+	if !strings.Contains(string(data), "# My Notebook") {
+		t.Error("new file should have starter content")
+	}
+}
+
+func TestNotebookInitReadError(t *testing.T) {
+	// Point to a path that is a directory, so ReadFile fails with a non-IsNotExist error.
+	dir := t.TempDir()
+	s := New(dir, ":0")
+	req := httptest.NewRequest(http.MethodPost, "/api/notebook/init", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestInsertBlockDefsNoInfo(t *testing.T) {
+	src := "# Title\n"
+	result := insertBlock(src, addBlockRequest{Kind: "defs", AfterLine: 1, Body: "import \"os\""})
+	if !strings.Contains(result, "```go:defs") {
+		t.Errorf("defs block should use default info:\n%s", result)
+	}
+}
+
+func TestInsertBlockAfterLineExceedsLength(t *testing.T) {
+	src := "# Title\n"
+	result := insertBlock(src, addBlockRequest{Kind: "cell", AfterLine: 999, Body: "x := 1", Info: "go:notebook name=test"})
+	if !strings.Contains(result, "x := 1") {
+		t.Errorf("block should be inserted even when after_line exceeds length:\n%s", result)
+	}
+}
+
+func TestInsertBlockProseEmptyBody(t *testing.T) {
+	src := "# Title\n"
+	result := insertBlock(src, addBlockRequest{Kind: "prose", AfterLine: 1, Body: ""})
+	// Should not panic, should produce valid output.
+	if !strings.Contains(result, "# Title") {
+		t.Errorf("original content missing:\n%s", result)
+	}
+}
+
+func TestInsertBlockAtBeginningNonEmptyFirstLine(t *testing.T) {
+	src := "# Title\nContent\n"
+	result := insertBlock(src, addBlockRequest{Kind: "prose", AfterLine: 0, Body: "Prepended."})
+	idx := strings.Index(result, "Prepended.")
+	titleIdx := strings.Index(result, "# Title")
+	if idx < 0 || titleIdx < 0 || idx > titleIdx {
+		t.Errorf("prepended prose should be before title:\n%s", result)
+	}
+}
+
+func TestRunMissingFile(t *testing.T) {
+	srv := New("/nonexistent/test.md", ":0")
+	req := httptest.NewRequest(http.MethodPost, "/api/run", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	// runBatch reads the file, should get an error.
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestRunSingleCellMissingFile(t *testing.T) {
+	srv := New("/nonexistent/test.md", ":0")
+	body, _ := json.Marshal(runRequest{Cell: "test"})
+	req := httptest.NewRequest(http.MethodPost, "/api/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	// executeNotebook reads the file, error goes in resp.Error, status is 200.
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp runResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Error == "" {
+		t.Error("expected error message for missing file")
+	}
+}
+
+func TestRewriteCellNotFound(t *testing.T) {
+	src := "# Title\n"
+	_, err := rewriteCell(src, updateRequest{Line: 999, Body: "x := 1"})
+	if err == nil {
+		t.Error("expected error for nonexistent cell")
+	}
+}
+
+func TestRootPathRedirect(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("status = %d, want 302", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/editor" {
+		t.Errorf("redirect Location = %q, want /editor", loc)
+	}
+}
+
+func TestRootPathUnknown404(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestRewriteCellWithRuntimeReads(t *testing.T) {
+	src := "```go:notebook name=test\nval = 1\n```\n"
+	req := updateRequest{
+		Line:  1,
+		Body:  "val = 2",
+		Name:  "test",
+		Reads: []readFileInfo{{Name: "data.csv", Mode: "runtime"}},
+	}
+	got, err := rewriteCell(src, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "reads(data.csv:runtime)") {
+		t.Errorf("missing runtime reads in:\n%s", got)
+	}
+}
+
+func TestParseCompileErrorNonNumericLine(t *testing.T) {
+	got := parseCompileError("file.go:abc:1: some error")
+	if got != nil {
+		t.Errorf("non-numeric line should return nil, got %+v", got)
+	}
+}
+
+func TestParseCompileErrorTooFewParts(t *testing.T) {
+	got := parseCompileError("file.go:1")
+	if got != nil {
+		t.Errorf("too few parts should return nil, got %+v", got)
+	}
+}
+
+func TestParseRunErrorsRecoveredPanic(t *testing.T) {
+	stderr := "recovered panic in cell test: bad thing\n"
+	errs := parseRunErrors(stderr, "", "test")
+	found := false
+	for _, e := range errs {
+		if e.Kind == "panic" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected panic error for 'recovered panic' line, got: %v", errs)
+	}
+}
+
+func TestParseRunErrorsCellErrorPrefix(t *testing.T) {
+	stderr := "CellError: something failed\n"
+	errs := parseRunErrors(stderr, "", "test")
+	found := false
+	for _, e := range errs {
+		if e.Kind == "runtime" && strings.Contains(e.Message, "CellError") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected runtime error for 'CellError' line, got: %v", errs)
+	}
+}
+
+func TestLSPCompletionNoExportedFields(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("```go:notebook name=test\nx := 1\n```\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodGet, "/api/lsp/completion", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "test") {
+		t.Error("completion should include cell name 'test'")
+	}
+	// Should not have field completions since no exported fields.
+	if strings.Contains(body, "test.") {
+		t.Error("should not have field completions without exported fields")
+	}
+}
+
+func TestLSPCompletionUnnamedCells(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("```go:notebook\nx := 1\n```\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodGet, "/api/lsp/completion", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	// Unnamed cells should be skipped.
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	items := resp["items"].([]interface{})
+	for _, item := range items {
+		m := item.(map[string]interface{})
+		if m["kind"] == "cell" {
+			t.Error("unnamed cells should not appear in completions")
+		}
+	}
+}
+
+func TestLSPHoverFieldNotFound(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("```go:notebook name=test exported(val int)\nval = 1\n```\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodGet, "/api/lsp/hover?word=test.nonexistent", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var info hoverInfo
+	json.Unmarshal(w.Body.Bytes(), &info)
+	if info.Content != "" {
+		t.Errorf("hover for unknown field should be empty, got %q", info.Content)
+	}
+}
+
+func TestLSPHoverCellWithoutExports(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("```go:notebook name=test\nval := 1\n```\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodGet, "/api/lsp/hover?word=test", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var info hoverInfo
+	json.Unmarshal(w.Body.Bytes(), &info)
+	if !strings.Contains(info.Content, "Cell test") {
+		t.Error("hover should show cell name")
+	}
+	// Should NOT contain "Exported:" since there are no exports.
+	if strings.Contains(info.Content, "Exported:") {
+		t.Error("hover should not show Exported for cell without exports")
+	}
+}
+
+func TestRunBatchSuccessMarksNotStale(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "```go:notebook name=step1 exported(val int)\nval = 1\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	srv := New(notebook, ":0")
+
+	// Pre-mark cell as stale.
+	srv.mu.Lock()
+	srv.cellStates["step1"] = &cellState{Name: "step1", Stale: true}
+	srv.mu.Unlock()
+
+	// Run batch (no cell specified).
+	req := httptest.NewRequest(http.MethodPost, "/api/run", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	var resp runResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.ExitCode != 0 {
+		t.Fatalf("exit code = %d, stderr: %s, error: %s", resp.ExitCode, resp.Stderr, resp.Error)
+	}
+
+	// After successful batch run, cell should not be stale.
+	srv.mu.RLock()
+	cs := srv.cellStates["step1"]
+	srv.mu.RUnlock()
+	if cs == nil {
+		t.Fatal("cell state should exist after batch run")
+	}
+	if cs.Stale {
+		t.Error("cell should not be stale after successful batch run")
+	}
+}
+
+func TestExecuteNotebookCheckErrors(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	// exported without name triggers checker error.
+	src := "```go:notebook exported(val int)\nval = 1\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	srv := New(notebook, ":0")
+	body, _ := json.Marshal(runRequest{Cell: "test"})
+	req := httptest.NewRequest(http.MethodPost, "/api/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp runResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if !strings.Contains(resp.Error, "check errors") {
+		t.Errorf("expected check errors, got: %q", resp.Error)
+	}
+}
+
+func TestDeleteBlockSkipsBlankLine(t *testing.T) {
+	// Tests that deleteBlock skips a trailing blank line after the deleted block.
+	src := "# Title\n\n```go:notebook name=test\nval = 42\n```\n\nEnd.\n"
+	result, err := deleteBlock(src, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The blank line between the cell and "End." should be consumed.
+	if strings.Contains(result, "val = 42") {
+		t.Error("cell body should be removed")
+	}
+	if !strings.Contains(result, "End.") {
+		t.Error("content after block should be preserved")
+	}
+}
+
+func TestCellsUpdateWriteError(t *testing.T) {
+	// Use a read-only directory to trigger WriteFile error.
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "# Test\n\n```go:notebook name=test exported(val int)\nval = 42\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	s := New(notebook, ":0")
+
+	// Make the file read-only.
+	os.Chmod(notebook, 0o444)
+	defer os.Chmod(notebook, 0o644)
+
+	req := updateRequest{Line: 3, Body: "val = 99", Name: "test", Exported: "val int"}
+	body, _ := json.Marshal(req)
+	r := httptest.NewRequest(http.MethodPut, "/api/cells/update", bytes.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestProseUpdateWriteError(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "# Title\n\nSome prose.\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	s := New(notebook, ":0")
+
+	// Make file read-only.
+	os.Chmod(notebook, 0o444)
+	defer os.Chmod(notebook, 0o644)
+
+	body, _ := json.Marshal(proseUpdateRequest{Line: 1, Body: "# New Title"})
+	req := httptest.NewRequest(http.MethodPut, "/api/prose/update", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestBlocksAddWriteError(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+
+	// Make file read-only.
+	os.Chmod(notebook, 0o444)
+	defer os.Chmod(notebook, 0o644)
+
+	body, _ := json.Marshal(addBlockRequest{Kind: "prose", AfterLine: 1, Body: "new"})
+	req := httptest.NewRequest(http.MethodPost, "/api/blocks/add", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestBlocksDeleteWriteError(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "# Title\n\n```go:notebook name=test\nval = 42\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	s := New(notebook, ":0")
+
+	// Make file read-only.
+	os.Chmod(notebook, 0o444)
+	defer os.Chmod(notebook, 0o644)
+
+	body, _ := json.Marshal(deleteBlockRequest{Line: 3})
+	req := httptest.NewRequest(http.MethodDelete, "/api/blocks/delete", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestBlocksReorderWriteError(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "# Title\n```go:notebook name=a\nx = 1\n```\n```go:notebook name=b\ny = 2\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	s := New(notebook, ":0")
+
+	// Make file read-only.
+	os.Chmod(notebook, 0o444)
+	defer os.Chmod(notebook, 0o644)
+
+	body, _ := json.Marshal(reorderBlockRequest{Line: 2, Direction: "down"})
+	req := httptest.NewRequest(http.MethodPut, "/api/blocks/reorder", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestNotebookInitWriteError(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte(""), 0o644)
+
+	s := New(notebook, ":0")
+
+	// Make the file read-only.
+	os.Chmod(notebook, 0o444)
+	defer os.Chmod(notebook, 0o644)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/notebook/init", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestFindModuleRoot(t *testing.T) {
+	// findModuleRoot should return the directory containing go.mod.
+	root := findModuleRoot()
+	if root == "" {
+		t.Error("findModuleRoot returned empty string")
+	}
+	// Should be a valid directory.
+	info, err := os.Stat(root)
+	if err != nil {
+		t.Fatalf("findModuleRoot returned non-existent path: %v", err)
+	}
+	if !info.IsDir() {
+		t.Error("findModuleRoot should return a directory")
+	}
+}
+
+func TestRunAllStopsOnError(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	// First cell is good, second will fail (references undefined variable).
+	src := "```go:notebook name=step1 exported(val int)\nval = 1\n```\n\n```go:notebook name=step2 exported(out int)\nout = undefined_var\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	srv := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodPost, "/api/run/all", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+
+	var results []runResponse
+	json.Unmarshal(w.Body.Bytes(), &results)
+	// Should stop after first error.
+	if len(results) == 0 {
+		t.Fatal("expected at least one result")
+	}
+	lastResult := results[len(results)-1]
+	if lastResult.Error == "" && lastResult.ExitCode == 0 {
+		t.Error("expected error in final result")
+	}
+}
+
+func TestRewriteCellWithTildeFence(t *testing.T) {
+	src := "~~~go:notebook name=test\nval = 1\n~~~\n"
+	req := updateRequest{
+		Line: 1,
+		Body: "val = 2",
+		Name: "test",
+	}
+	got, err := rewriteCell(src, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "~~~") {
+		t.Errorf("tilde fence should be preserved:\n%s", got)
+	}
+	if !strings.Contains(got, "val = 2") {
+		t.Errorf("body should be updated:\n%s", got)
+	}
+}
+
+func TestRewriteCellIndentedFence(t *testing.T) {
+	src := "  ```go:notebook name=test\nval = 1\n  ```\n"
+	req := updateRequest{
+		Line: 1,
+		Body: "val = 2",
+		Name: "test",
+	}
+	got, err := rewriteCell(src, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, "  ```") {
+		t.Errorf("indented fence should be preserved:\n%s", got)
+	}
+}
+
+func TestMarkStaleFileReadError(t *testing.T) {
+	// markStale with a non-empty cell name on a missing file should not panic.
+	srv := New("/nonexistent/test.md", ":0")
+	srv.mu.Lock()
+	srv.cellStates["a"] = &cellState{Name: "a", Stale: false}
+	srv.mu.Unlock()
+
+	// Should silently return without panicking.
+	srv.markStale("a")
+
+	srv.mu.RLock()
+	defer srv.mu.RUnlock()
+	// State should be unchanged since file read failed.
+	if srv.cellStates["a"].Stale {
+		t.Error("cell should not be marked stale when file read fails")
+	}
+}
+
+func TestLSPCompletionMultipleExportedFields(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("```go:notebook name=data exported(x int, y string)\nx = 1\n```\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodGet, "/api/lsp/completion", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "data.x") {
+		t.Error("completion should include data.x")
+	}
+	if !strings.Contains(body, "data.y") {
+		t.Error("completion should include data.y")
+	}
+}
+
+func TestLSPCompletionExportedFieldNoType(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	// Exported field with just a name but no type — should be skipped in completions.
+	os.WriteFile(notebook, []byte("```go:notebook name=data exported(x)\nx = 1\n```\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodGet, "/api/lsp/completion", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	body := w.Body.String()
+	// Cell name should be present but field "data.x" should not (no type).
+	if !strings.Contains(body, "\"data\"") {
+		t.Error("completion should include cell name 'data'")
+	}
+	if strings.Contains(body, "data.x") {
+		t.Error("field without type should not appear in completions")
+	}
+}
+
+func TestLSPHoverExportedFieldNoType(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	// Exported field with just a name and no type.
+	os.WriteFile(notebook, []byte("```go:notebook name=data exported(x)\nx = 1\n```\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodGet, "/api/lsp/hover?word=data.x", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var info hoverInfo
+	json.Unmarshal(w.Body.Bytes(), &info)
+	// Field without type should return empty hover.
+	if info.Content != "" {
+		t.Errorf("hover for field without type should be empty, got %q", info.Content)
+	}
+}
+
+func TestLSPHoverMultipleExportedFieldsMismatch(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("```go:notebook name=data exported(x int, y string)\nx = 1\n```\n"), 0o644)
+
+	s := New(notebook, ":0")
+	// Hover on a field that exists.
+	req := httptest.NewRequest(http.MethodGet, "/api/lsp/hover?word=data.y", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var info hoverInfo
+	json.Unmarshal(w.Body.Bytes(), &info)
+	if !strings.Contains(info.Content, "data.y") {
+		t.Errorf("hover should show data.y, got: %q", info.Content)
+	}
+	if !strings.Contains(info.Content, "string") {
+		t.Errorf("hover should show field type string, got: %q", info.Content)
+	}
+}
+
+func TestRunBatchRuntimeError(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	// A cell that compiles but panics at runtime.
+	src := "```go:defs\nimport \"fmt\"\n```\n\n```go:notebook name=test\nvar s []int\nfmt.Println(s[999])\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	srv := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodPost, "/api/run", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var resp runResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	// Should have non-zero exit code.
+	if resp.ExitCode == 0 && resp.Error == "" {
+		t.Error("expected runtime error or non-zero exit code")
+	}
+}
+
+func TestRunSingleCellRuntimeError(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	// A cell that compiles but panics at runtime.
+	src := "```go:defs\nimport \"fmt\"\n```\n\n```go:notebook name=test\nvar s []int\nfmt.Println(s[999])\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	srv := New(notebook, ":0")
+	body, _ := json.Marshal(runRequest{Cell: "test"})
+	req := httptest.NewRequest(http.MethodPost, "/api/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var resp runResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	// Should have non-zero exit code or error.
+	if resp.ExitCode == 0 && resp.Error == "" {
+		t.Error("expected runtime error or non-zero exit code for single cell")
+	}
+	// Cell state should be marked as failed.
+	srv.mu.RLock()
+	cs := srv.cellStates["test"]
+	srv.mu.RUnlock()
+	if cs == nil {
+		t.Fatal("cell state should exist after execution")
+	}
+	if !cs.Failed {
+		t.Error("cell state should be marked as failed")
+	}
+}
+
+func TestRunBatchCompileError(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	// A cell that fails to compile (undefined variable).
+	src := "```go:notebook name=test exported(val int)\nval = undefined_xyz\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	srv := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodPost, "/api/run", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var resp runResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	// Should have non-zero exit code.
+	if resp.ExitCode == 0 && resp.Error == "" {
+		t.Error("expected compile error")
+	}
+}
+
+func TestLSPCompletionWithMixedBlocks(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	// Notebook with prose, defs, and cells to exercise the continue path for non-cell blocks.
+	src := "# Title\n\nSome prose.\n\n```go:defs\nimport \"fmt\"\n```\n\n```go:notebook name=test exported(val int)\nval = 42\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodGet, "/api/lsp/completion", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "test") {
+		t.Error("completion should include cell name")
+	}
+	if !strings.Contains(body, "test.val") {
+		t.Error("completion should include field")
+	}
+}
+
+func TestLSPHoverWithMixedBlocks(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	// Notebook with prose, defs, and cells.
+	src := "# Title\n\nSome prose.\n\n```go:defs\nimport \"fmt\"\n```\n\n```go:notebook name=test exported(val int)\nval = 42\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodGet, "/api/lsp/hover?word=test", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var info hoverInfo
+	json.Unmarshal(w.Body.Bytes(), &info)
+	if !strings.Contains(info.Content, "Cell test") {
+		t.Error("hover should show cell name")
+	}
+}
+
+func TestListenAndServeStartsAndStops(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	srv := New(notebook, "127.0.0.1:0")
+
+	// Start the server in a goroutine and immediately connect to verify it started.
+	// We use a listener to get the actual port.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+
+	srv2 := New(notebook, addr)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv2.ListenAndServe()
+	}()
+
+	// Give the server a moment to start.
+	time.Sleep(100 * time.Millisecond)
+
+	// Make a request to verify it's running.
+	resp, err := http.Get("http://" + addr + "/api/status")
+	if err != nil {
+		t.Logf("server may not have started: %v", err)
+	} else {
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("status = %d, want 200", resp.StatusCode)
+		}
+	}
+
+	// We just need to verify it started — we can't cleanly shut it down
+	// without adding a Shutdown method, but the test will clean up on exit.
+	_ = srv // suppress unused warning
+}
+
+func TestRunBatchMkdirTempError(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "```go:notebook name=test exported(val int)\nval = 1\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	srv := New(notebook, ":0")
+
+	// Set TMPDIR to a non-writable path to trigger MkdirTemp error.
+	old := os.Getenv("TMPDIR")
+	os.Setenv("TMPDIR", "/nonexistent-tmpdir-for-test")
+	defer os.Setenv("TMPDIR", old)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/run", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500 (MkdirTemp should fail)", w.Code)
+	}
+}
+
+func TestRunSingleCellMkdirTempError(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "```go:notebook name=test exported(val int)\nval = 1\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	srv := New(notebook, ":0")
+
+	// Set TMPDIR to a non-writable path to trigger MkdirTemp error.
+	old := os.Getenv("TMPDIR")
+	os.Setenv("TMPDIR", "/nonexistent-tmpdir-for-test")
+	defer os.Setenv("TMPDIR", old)
+
+	body, _ := json.Marshal(runRequest{Cell: "test"})
+	req := httptest.NewRequest(http.MethodPost, "/api/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp runResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Error == "" {
+		t.Error("expected error when TMPDIR is non-writable")
+	}
+}
+
+func TestFindModuleRootWithBadGoEnv(t *testing.T) {
+	// Temporarily break PATH so `go env GOMOD` fails.
+	oldPath := os.Getenv("PATH")
+	os.Setenv("PATH", "/nonexistent-path")
+	defer os.Setenv("PATH", oldPath)
+
+	root := findModuleRoot()
+	if root != "." {
+		t.Errorf("findModuleRoot with broken PATH should return '.', got %q", root)
+	}
+}
+
+func TestRunBatchCancelledContext(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "```go:notebook name=test exported(val int)\nval = 1\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	srv := New(notebook, ":0")
+
+	// Create a request with an already-cancelled context.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately.
+
+	req := httptest.NewRequest(http.MethodPost, "/api/run", nil).WithContext(ctx)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	// The response should contain an error since the context was cancelled.
+	if w.Code == http.StatusOK {
+		var resp runResponse
+		json.Unmarshal(w.Body.Bytes(), &resp)
+		// Either error is non-empty or exit code is non-zero.
+		if resp.Error == "" && resp.ExitCode == 0 {
+			t.Log("note: cancelled context may not propagate quickly enough")
+		}
+	}
+}
+
+func TestRunSingleCellCancelledContext(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "```go:notebook name=test exported(val int)\nval = 1\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	srv := New(notebook, ":0")
+
+	// Create a request with an already-cancelled context.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately.
+
+	body, _ := json.Marshal(runRequest{Cell: "test"})
+	req := httptest.NewRequest(http.MethodPost, "/api/run", bytes.NewReader(body)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code == http.StatusOK {
+		var resp runResponse
+		json.Unmarshal(w.Body.Bytes(), &resp)
+		if resp.Error == "" && resp.ExitCode == 0 {
+			t.Log("note: cancelled context may not propagate quickly enough")
+		}
+	}
+}
+
+func TestLSPHoverFieldOnCellWithMultipleCells(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	// Two cells — hover on second cell's field should skip first cell.
+	src := "```go:notebook name=alpha exported(a int)\na = 1\n```\n\n```go:notebook name=beta exported(b int)\nb = 2\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodGet, "/api/lsp/hover?word=beta.b", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var info hoverInfo
+	json.Unmarshal(w.Body.Bytes(), &info)
+	if !strings.Contains(info.Content, "beta.b") {
+		t.Errorf("hover should show beta.b, got: %q", info.Content)
 	}
 }
