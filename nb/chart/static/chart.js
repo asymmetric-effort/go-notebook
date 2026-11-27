@@ -158,7 +158,7 @@ function initCharts() {
         if (!raw)
             continue;
         try {
-            const data = JSON.parse(raw);
+            const data = JSON.parse(atob(raw));
             new ChartInteraction(svg, data);
         }
         catch {
