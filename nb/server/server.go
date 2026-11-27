@@ -704,11 +704,26 @@ func (s *Server) runBatch(w http.ResponseWriter, r *http.Request) {
 	goModPath := filepath.Join(pkgDir, "go.mod")
 	goModData, _ := os.ReadFile(goModPath)
 	goModStr := string(goModData)
+	sourceTree := isSourceTree(moduleRoot)
 	// Only add replace directive when running from the source tree.
-	if isSourceTree(moduleRoot) {
+	if sourceTree {
 		goModStr += "\nreplace github.com/asymmetric-effort/go-notebook => " + moduleRoot + "\n"
 	}
 	os.WriteFile(goModPath, []byte(goModStr), 0o644)
+
+	// When not in source tree, run go mod tidy to resolve dependencies
+	// from the module proxy (the generated go.mod has the installed version).
+	if !sourceTree {
+		tidyCmd := exec.Command("go", "mod", "tidy")
+		tidyCmd.Dir = pkgDir
+		tidyCmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod")
+		if out, err := tidyCmd.CombinedOutput(); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{
+				"error": fmt.Sprintf("go mod tidy: %s\n%v", out, err),
+			})
+			return
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
@@ -888,11 +903,26 @@ func (s *Server) executeNotebook(r *http.Request, cellName string) runResponse {
 	goModPath := filepath.Join(pkgDir, "go.mod")
 	goModData, _ := os.ReadFile(goModPath)
 	goModStr := string(goModData)
+	sourceTree := isSourceTree(moduleRoot)
 	// Only add replace directive when running from the source tree.
-	if isSourceTree(moduleRoot) {
+	if sourceTree {
 		goModStr += "\nreplace github.com/asymmetric-effort/go-notebook => " + moduleRoot + "\n"
 	}
 	os.WriteFile(goModPath, []byte(goModStr), 0o644)
+
+	// When not in source tree, run go mod tidy to resolve dependencies
+	// from the module proxy (the generated go.mod has the installed version).
+	if !sourceTree {
+		tidyCmd := exec.Command("go", "mod", "tidy")
+		tidyCmd.Dir = pkgDir
+		tidyCmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod")
+		if out, err := tidyCmd.CombinedOutput(); err != nil {
+			return runResponse{
+				Cell:  cellName,
+				Error: fmt.Sprintf("go mod tidy: %s\n%v", out, err),
+			}
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()

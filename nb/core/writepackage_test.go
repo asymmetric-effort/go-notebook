@@ -11,6 +11,46 @@ import (
 	"testing"
 )
 
+// TestResolveModuleVersion verifies that resolveModuleVersion returns a valid
+// version string or "latest". When running from a source tree (go test), the
+// build info reports "(devel)" so we expect "latest".
+func TestResolveModuleVersion(t *testing.T) {
+	v := resolveModuleVersion()
+	if v == "" {
+		t.Fatal("resolveModuleVersion returned empty string")
+	}
+	if v != "latest" && !strings.HasPrefix(v, "v") {
+		t.Errorf("resolveModuleVersion = %q, want 'latest' or 'vX.Y.Z'", v)
+	}
+	// When running from source, expect "latest" (since debug info says "(devel)").
+	if v != "latest" {
+		t.Logf("resolveModuleVersion = %q (running from installed binary)", v)
+	}
+}
+
+// TestModuleVersionUsedInGoMod verifies that WritePackage generates a go.mod
+// with the current ModuleVersion instead of a hardcoded v0.0.0.
+func TestModuleVersionUsedInGoMod(t *testing.T) {
+	gen := GenerateResult{PackageName: "main"}
+	dir := t.TempDir()
+	pkgDir := filepath.Join(dir, "versionpkg")
+	err := WritePackage(gen, pkgDir, "test.md", "versionpkg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(pkgDir, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	goMod := string(data)
+	if strings.Contains(goMod, "v0.0.0") {
+		t.Errorf("go.mod should not contain v0.0.0:\n%s", goMod)
+	}
+	if !strings.Contains(goMod, "go-notebook "+ModuleVersion) {
+		t.Errorf("go.mod should contain ModuleVersion %q:\n%s", ModuleVersion, goMod)
+	}
+}
+
 // TestWritePackageCompiles is the critical integration test: it generates
 // a Go package from a notebook and verifies it compiles with `go build`.
 func TestWritePackageCompiles(t *testing.T) {

@@ -6,8 +6,27 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 )
+
+// ModuleVersion is the version of go-notebook to require in generated code.
+// Set at init time from runtime/debug.ReadBuildInfo(). When running from a
+// tagged install (e.g. go install ...@v0.0.11) this will be "v0.0.11".
+// When running from a source tree or pseudo-version it falls back to "latest".
+var ModuleVersion = resolveModuleVersion()
+
+func resolveModuleVersion() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		v := info.Main.Version
+		// Accept tagged versions (v1.2.3) but not pseudo-versions
+		// (v0.0.9-0.20261127...) or development markers ((devel)).
+		if strings.HasPrefix(v, "v") && !strings.Contains(v, "-0.") {
+			return v
+		}
+	}
+	return "latest"
+}
 
 // WritePackage writes a complete, compilable Go package from a GenerateResult
 // to the specified directory. The package includes a go.mod, the generated
@@ -19,8 +38,9 @@ func WritePackage(gen GenerateResult, dir string, notebookPath string, modulePat
 		return fmt.Errorf("create package dir: %w", err)
 	}
 
-	// Write go.mod.
-	goMod := fmt.Sprintf("module %s\n\ngo 1.27.4\n\nrequire github.com/asymmetric-effort/go-notebook v0.0.0\n", modulePath)
+	// Write go.mod. Use the resolved module version so that installs via
+	// "go install ...@vX.Y.Z" produce a resolvable require line.
+	goMod := fmt.Sprintf("module %s\n\ngo 1.27.4\n\nrequire github.com/asymmetric-effort/go-notebook %s\n", modulePath, ModuleVersion)
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goMod), 0o644); err != nil {
 		return fmt.Errorf("write go.mod: %w", err)
 	}
