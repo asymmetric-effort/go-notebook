@@ -1830,3 +1830,451 @@ func TestHandleEditorEmbeddedHTMLNotFound(t *testing.T) {
 		t.Errorf("status = %d, want 200 (editor.html must be embedded)", w.Code)
 	}
 }
+
+// --- Editor CRUD tests (#281–#292) ---
+
+func TestBlocksAddCell(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	body, _ := json.Marshal(addBlockRequest{Kind: "cell", AfterLine: 1, Body: "x := 1", Info: "go:notebook name=newcell"})
+	req := httptest.NewRequest(http.MethodPost, "/api/blocks/add", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	data, _ := os.ReadFile(notebook)
+	content := string(data)
+	if !strings.Contains(content, "go:notebook name=newcell") {
+		t.Error("cell info string missing")
+	}
+	if !strings.Contains(content, "x := 1") {
+		t.Error("cell body missing")
+	}
+	if !strings.Contains(content, "# Title") {
+		t.Error("original content should be preserved")
+	}
+}
+
+func TestBlocksAddProse(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	body, _ := json.Marshal(addBlockRequest{Kind: "prose", AfterLine: 1, Body: "Some new prose."})
+	req := httptest.NewRequest(http.MethodPost, "/api/blocks/add", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	data, _ := os.ReadFile(notebook)
+	content := string(data)
+	if !strings.Contains(content, "Some new prose.") {
+		t.Error("prose body missing")
+	}
+}
+
+func TestBlocksAddAtBeginning(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	body, _ := json.Marshal(addBlockRequest{Kind: "cell", AfterLine: 0, Body: "first := true", Info: "go:notebook name=first"})
+	req := httptest.NewRequest(http.MethodPost, "/api/blocks/add", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	data, _ := os.ReadFile(notebook)
+	content := string(data)
+	// Cell should be at the beginning, before the title.
+	idx := strings.Index(content, "go:notebook name=first")
+	titleIdx := strings.Index(content, "# Title")
+	if idx < 0 || titleIdx < 0 || idx > titleIdx {
+		t.Error("cell should be inserted before existing content")
+	}
+}
+
+func TestBlocksAddInvalidKind(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	body, _ := json.Marshal(addBlockRequest{Kind: "invalid", AfterLine: 0})
+	req := httptest.NewRequest(http.MethodPost, "/api/blocks/add", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestBlocksAddMethodNotAllowed(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodGet, "/api/blocks/add", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestBlocksDeleteBlock(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	src := "# Title\n\n```go:notebook name=test exported(val int)\nval = 42\n```\n\nEnd prose.\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	s := New(notebook, ":0")
+
+	// Find the cell block line.
+	body, _ := json.Marshal(deleteBlockRequest{Line: 3})
+	req := httptest.NewRequest(http.MethodDelete, "/api/blocks/delete", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	data, _ := os.ReadFile(notebook)
+	content := string(data)
+	if strings.Contains(content, "val = 42") {
+		t.Error("deleted block body should not appear in file")
+	}
+	if strings.Contains(content, "go:notebook name=test") {
+		t.Error("deleted block info should not appear in file")
+	}
+	if !strings.Contains(content, "# Title") {
+		t.Error("non-deleted content should be preserved")
+	}
+	if !strings.Contains(content, "End prose.") {
+		t.Error("content after deleted block should be preserved")
+	}
+}
+
+func TestBlocksDeleteNotFound(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	body, _ := json.Marshal(deleteBlockRequest{Line: 999})
+	req := httptest.NewRequest(http.MethodDelete, "/api/blocks/delete", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestBlocksDeleteMethodNotAllowed(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodGet, "/api/blocks/delete", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestBlocksReorderDown(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	// No blank lines between cells, so they are adjacent blocks.
+	src := "# Title\n```go:notebook name=a exported(x int)\nx = 1\n```\n```go:notebook name=b exported(y int)\ny = 2\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	s := New(notebook, ":0")
+
+	// Cell a is at line 2, cell b at line 5.
+	body, _ := json.Marshal(reorderBlockRequest{Line: 2, Direction: "down"})
+	req := httptest.NewRequest(http.MethodPut, "/api/blocks/reorder", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	data, _ := os.ReadFile(notebook)
+	content := string(data)
+	// After reorder, "b" should come before "a".
+	bIdx := strings.Index(content, "name=b")
+	aIdx := strings.Index(content, "name=a")
+	if bIdx < 0 || aIdx < 0 || bIdx > aIdx {
+		t.Errorf("after moving a down, b should precede a:\n%s", content)
+	}
+}
+
+func TestBlocksReorderUp(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	// No blank lines between cells.
+	src := "# Title\n```go:notebook name=a exported(x int)\nx = 1\n```\n```go:notebook name=b exported(y int)\ny = 2\n```\n"
+	os.WriteFile(notebook, []byte(src), 0o644)
+
+	s := New(notebook, ":0")
+
+	// Cell b is at line 5.
+	body, _ := json.Marshal(reorderBlockRequest{Line: 5, Direction: "up"})
+	req := httptest.NewRequest(http.MethodPut, "/api/blocks/reorder", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	data, _ := os.ReadFile(notebook)
+	content := string(data)
+	bIdx := strings.Index(content, "name=b")
+	aIdx := strings.Index(content, "name=a")
+	if bIdx < 0 || aIdx < 0 || bIdx > aIdx {
+		t.Errorf("after moving b up, b should precede a:\n%s", content)
+	}
+}
+
+func TestBlocksReorderInvalidDirection(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	body, _ := json.Marshal(reorderBlockRequest{Line: 1, Direction: "sideways"})
+	req := httptest.NewRequest(http.MethodPut, "/api/blocks/reorder", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestBlocksReorderFirstUp(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	body, _ := json.Marshal(reorderBlockRequest{Line: 1, Direction: "up"})
+	req := httptest.NewRequest(http.MethodPut, "/api/blocks/reorder", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestBlocksReorderMethodNotAllowed(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodGet, "/api/blocks/reorder", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestNotebookInit(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte(""), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodPost, "/api/notebook/init", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	data, _ := os.ReadFile(notebook)
+	content := string(data)
+	if !strings.Contains(content, "# My Notebook") {
+		t.Error("starter content should contain title")
+	}
+	if !strings.Contains(content, "go:defs") {
+		t.Error("starter content should contain defs block")
+	}
+	if !strings.Contains(content, "go:notebook name=hello") {
+		t.Error("starter content should contain hello cell")
+	}
+	if !strings.Contains(content, "fmt.Println") {
+		t.Error("starter content should contain hello code")
+	}
+}
+
+func TestNotebookInitNonEmpty(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("# Existing content\n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodPost, "/api/notebook/init", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Errorf("status = %d, want 409", w.Code)
+	}
+
+	// Verify file was not modified.
+	data, _ := os.ReadFile(notebook)
+	if !strings.Contains(string(data), "# Existing content") {
+		t.Error("file should not be modified")
+	}
+}
+
+func TestNotebookInitWhitespaceOnly(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte("   \n  \n"), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodPost, "/api/notebook/init", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	data, _ := os.ReadFile(notebook)
+	if !strings.Contains(string(data), "# My Notebook") {
+		t.Error("whitespace-only file should be treated as empty")
+	}
+}
+
+func TestNotebookInitMethodNotAllowed(t *testing.T) {
+	dir := t.TempDir()
+	notebook := filepath.Join(dir, "test.md")
+	os.WriteFile(notebook, []byte(""), 0o644)
+
+	s := New(notebook, ":0")
+	req := httptest.NewRequest(http.MethodGet, "/api/notebook/init", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestInsertBlockUnit(t *testing.T) {
+	src := "# Title\n\nSome prose.\n"
+
+	// Insert a cell after line 3 (end of prose).
+	result := insertBlock(src, addBlockRequest{Kind: "cell", AfterLine: 3, Body: "x := 1", Info: "go:notebook name=test"})
+	if !strings.Contains(result, "```go:notebook name=test") {
+		t.Errorf("missing cell fence:\n%s", result)
+	}
+	if !strings.Contains(result, "x := 1") {
+		t.Errorf("missing cell body:\n%s", result)
+	}
+	if !strings.Contains(result, "# Title") {
+		t.Errorf("original content missing:\n%s", result)
+	}
+}
+
+func TestDeleteBlockUnit(t *testing.T) {
+	src := "# Title\n\n```go:notebook name=test\nval = 42\n```\n\nEnd.\n"
+	result, err := deleteBlock(src, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(result, "val = 42") {
+		t.Errorf("deleted block should not appear:\n%s", result)
+	}
+	if !strings.Contains(result, "# Title") {
+		t.Errorf("title should be preserved:\n%s", result)
+	}
+	if !strings.Contains(result, "End.") {
+		t.Errorf("end prose should be preserved:\n%s", result)
+	}
+}
+
+func TestDeleteBlockNotFound(t *testing.T) {
+	src := "# Title\n"
+	_, err := deleteBlock(src, 999)
+	if err == nil {
+		t.Error("expected error for nonexistent block")
+	}
+}
+
+func TestReorderBlockUnit(t *testing.T) {
+	// Two cells separated only by a blank prose line. Moving b up swaps it
+	// with the blank prose (the immediate neighbor), not cell a.
+	// Use a source with no blank line between cells to test direct swap.
+	src := "# Top\n```go:notebook name=a\nx = 1\n```\n```go:notebook name=b\ny = 2\n```\n"
+	// Parser: block 0 = prose(line 1), block 1 = cell a(line 2-4), block 2 = cell b(line 5-7).
+	// Move cell a (line 2) down — should swap with cell b.
+	result, err := reorderBlock(src, 2, "down")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bIdx := strings.Index(result, "name=b")
+	aIdx := strings.Index(result, "name=a")
+	if bIdx < 0 || aIdx < 0 || bIdx > aIdx {
+		t.Errorf("after moving a down, b should come first:\n%s", result)
+	}
+}
+
+func TestReorderBlockCannotMoveFirstUp(t *testing.T) {
+	src := "# Title\n"
+	_, err := reorderBlock(src, 1, "up")
+	if err == nil {
+		t.Error("expected error when moving first block up")
+	}
+}
+
+func TestReorderBlockCannotMoveLastDown(t *testing.T) {
+	src := "# Title\n"
+	_, err := reorderBlock(src, 1, "down")
+	if err == nil {
+		t.Error("expected error when moving last block down")
+	}
+}
