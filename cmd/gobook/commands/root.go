@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -23,8 +24,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// version is set at build time via ldflags.
-var version = "dev"
+// version is set at build time via ldflags, or resolved from module
+// build info when installed via go install.
+var version = resolveVersion()
+
+func resolveVersion() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		v := info.Main.Version
+		// Accept tagged versions (v1.2.3) but not pseudo-versions
+		// (v0.0.9-0.20261127...) or development markers ((devel)).
+		if strings.HasPrefix(v, "v") && !strings.Contains(v, "-0.") {
+			return v
+		}
+	}
+	return "dev"
+}
 
 var rootCmd = &cobra.Command{
 	Use:           "gobook",
