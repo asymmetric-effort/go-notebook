@@ -53,6 +53,38 @@ func TestStatusEndpoint(t *testing.T) {
 	if !resp.OK {
 		t.Error("ok should be true")
 	}
+	if resp.Version == "" {
+		t.Error("version should not be empty")
+	}
+}
+
+func TestStatusVersionField(t *testing.T) {
+	path := testNotebook(t)
+	srv := New(path, ":0")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want 200", w.Code)
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	v, ok := raw["version"]
+	if !ok {
+		t.Fatal("response missing 'version' field")
+	}
+	vs, ok := v.(string)
+	if !ok {
+		t.Fatal("version field is not a string")
+	}
+	if vs == "" {
+		t.Error("version field should not be empty")
+	}
 }
 
 func TestStatusMethodNotAllowed(t *testing.T) {

@@ -52,6 +52,18 @@ class NotebookEditor {
     }
     const blocks: BlockInfo[] = await resp.json() as BlockInfo[];
     this.render(blocks);
+
+    // Update header with version.
+    try {
+      const statusResp = await fetch("/api/status");
+      if (statusResp.ok) {
+        const status: { version?: string } = await statusResp.json() as { version?: string };
+        const h1 = document.querySelector("h1");
+        if (h1 && status.version) {
+          h1.textContent = `go-notebook editor (${status.version})`;
+        }
+      }
+    } catch { /* ignore */ }
   }
 
   private render(blocks: BlockInfo[]): void {
