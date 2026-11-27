@@ -7,7 +7,7 @@ test.describe('Editor — hello notebook', () => {
     const errors: string[] = [];
     page.on('pageerror', (err) => errors.push(err.message));
 
-    await page.goto('/api/editor');
+    await page.goto('/editor');
     // Wait for the notebook content to render.
     await page.waitForSelector('section.block, p');
 
@@ -15,7 +15,7 @@ test.describe('Editor — hello notebook', () => {
   });
 
   test('renders blocks for non-empty notebook', async ({ page }) => {
-    await page.goto('/api/editor');
+    await page.goto('/editor');
     // The hello.md fixture has defs and cell blocks.
     await page.waitForSelector('section.block');
 
