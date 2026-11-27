@@ -716,7 +716,7 @@ func (s *Server) runBatch(w http.ResponseWriter, r *http.Request) {
 	if !sourceTree {
 		tidyCmd := exec.Command("go", "mod", "tidy")
 		tidyCmd.Dir = pkgDir
-		tidyCmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod")
+		tidyCmd.Env = goEnvForNotebook()
 		if out, err := tidyCmd.CombinedOutput(); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{
 				"error": fmt.Sprintf("go mod tidy: %s\n%v", out, err),
@@ -915,7 +915,7 @@ func (s *Server) executeNotebook(r *http.Request, cellName string) runResponse {
 	if !sourceTree {
 		tidyCmd := exec.Command("go", "mod", "tidy")
 		tidyCmd.Dir = pkgDir
-		tidyCmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod")
+		tidyCmd.Env = goEnvForNotebook()
 		if out, err := tidyCmd.CombinedOutput(); err != nil {
 			return runResponse{
 				Cell:  cellName,
@@ -1656,6 +1656,18 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
+}
+
+// goEnvForNotebook returns environment variables for running go commands
+// on generated notebook code. It bypasses the Go module proxy and sum
+// database for the go-notebook module to avoid transient proxy failures.
+func goEnvForNotebook() []string {
+	return append(os.Environ(),
+		"GOFLAGS=-mod=mod",
+		"GONOSUMDB=github.com/asymmetric-effort/go-notebook",
+		"GONOSUMCHECK=github.com/asymmetric-effort/go-notebook",
+		"GOPROXY=direct",
+	)
 }
 
 func findModuleRoot() string {
