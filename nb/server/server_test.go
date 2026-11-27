@@ -2818,6 +2818,9 @@ func TestDeleteBlockSkipsBlankLine(t *testing.T) {
 }
 
 func TestCellsUpdateWriteError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses permission checks")
+	}
 	// Use a read-only directory to trigger WriteFile error.
 	dir := t.TempDir()
 	notebook := filepath.Join(dir, "test.md")
@@ -2843,6 +2846,9 @@ func TestCellsUpdateWriteError(t *testing.T) {
 }
 
 func TestProseUpdateWriteError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses permission checks")
+	}
 	dir := t.TempDir()
 	notebook := filepath.Join(dir, "test.md")
 	src := "# Title\n\nSome prose.\n"
@@ -2866,6 +2872,9 @@ func TestProseUpdateWriteError(t *testing.T) {
 }
 
 func TestBlocksAddWriteError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses permission checks")
+	}
 	dir := t.TempDir()
 	notebook := filepath.Join(dir, "test.md")
 	os.WriteFile(notebook, []byte("# Title\n"), 0o644)
@@ -2888,6 +2897,9 @@ func TestBlocksAddWriteError(t *testing.T) {
 }
 
 func TestBlocksDeleteWriteError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses permission checks")
+	}
 	dir := t.TempDir()
 	notebook := filepath.Join(dir, "test.md")
 	src := "# Title\n\n```go:notebook name=test\nval = 42\n```\n"
@@ -2911,6 +2923,9 @@ func TestBlocksDeleteWriteError(t *testing.T) {
 }
 
 func TestBlocksReorderWriteError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses permission checks")
+	}
 	dir := t.TempDir()
 	notebook := filepath.Join(dir, "test.md")
 	src := "# Title\n```go:notebook name=a\nx = 1\n```\n```go:notebook name=b\ny = 2\n```\n"
@@ -2934,6 +2949,9 @@ func TestBlocksReorderWriteError(t *testing.T) {
 }
 
 func TestNotebookInitWriteError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses permission checks")
+	}
 	dir := t.TempDir()
 	notebook := filepath.Join(dir, "test.md")
 	os.WriteFile(notebook, []byte(""), 0o644)
