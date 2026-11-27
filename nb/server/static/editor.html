@@ -20,6 +20,7 @@
     --block-bg: var(--bg-primary);
     --insert-btn-bg: #e9ecef; --insert-btn-color: #495057; --insert-btn-border: #ced4da;
     --insert-btn-hover: #dee2e6;
+    --btn-text: #ffffff; --secret-accent: #6f42c1;
   }
   [data-theme="dark"] {
     --bg-primary: #0f172a; --bg-secondary: #1e293b; --bg-tertiary: #334155;
@@ -34,6 +35,7 @@
     --block-bg: #1e293b;
     --insert-btn-bg: #334155; --insert-btn-color: #94a3b8; --insert-btn-border: #475569;
     --insert-btn-hover: #475569;
+    --btn-text: #f1f5f9; --secret-accent: #a78bfa;
   }
 
   *, *::before, *::after { box-sizing: border-box; }
@@ -85,7 +87,7 @@
   .mobile-menu-btn {
     display: none;
     position: fixed; top: 0.75rem; left: 0.75rem; z-index: 100;
-    background: var(--btn-primary); color: #fff;
+    background: var(--btn-primary); color: var(--btn-text);
     border: none; border-radius: 4px; padding: 0.4rem 0.75rem;
     cursor: pointer; font-size: 1.2rem;
   }
@@ -145,7 +147,7 @@
   button {
     padding: 0.4rem 1rem;
     background: var(--btn-primary);
-    color: #fff;
+    color: var(--btn-text);
     border: none;
     border-radius: 4px;
     cursor: pointer;
@@ -193,8 +195,24 @@
   .diagnostic-error { color: var(--danger); }
   .diagnostic-warning { color: var(--warning); }
   .diagnostic-info { color: var(--accent); }
-  .secret-block { border-left: 4px solid #6f42c1; }
+  .secret-block { border-left: 4px solid var(--secret-accent); }
   .secret-block input[type="password"] { font-family: monospace; letter-spacing: 0.2em; }
+  .secret-list { list-style: none; padding: 0; margin: 0 0 1rem; }
+  .secret-list li {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border);
+    font-size: 0.9rem; color: var(--text-primary);
+  }
+  .secret-list li:last-child { border-bottom: none; }
+  .secret-list .secret-name { font-family: monospace; }
+  .secret-list .delete-secret-btn {
+    background: var(--btn-danger); color: var(--btn-text);
+    border: none; border-radius: 4px; font-size: 0.75rem;
+    padding: 0.2rem 0.5rem; cursor: pointer;
+  }
+  .secret-list .delete-secret-btn:hover { background: var(--btn-danger-hover); }
+  .clear-all-btn { background: var(--btn-danger); color: var(--btn-text); margin-top: 0.5rem; }
+  .clear-all-btn:hover { background: var(--btn-danger-hover); }
   .insert-toolbar { display: flex; gap: 0.5rem; padding: 0.5rem 0; justify-content: center; }
   .insert-toolbar button {
     background: var(--insert-btn-bg); color: var(--insert-btn-color);
@@ -207,7 +225,7 @@
     border: 1px solid var(--border); font-size: 0.75rem; padding: 0.15rem 0.5rem;
   }
   .block-actions .delete-btn { color: var(--danger); border-color: var(--danger); }
-  .block-actions .delete-btn:hover { background: var(--danger); color: #fff; }
+  .block-actions .delete-btn:hover { background: var(--danger); color: var(--btn-text); }
   .get-started { text-align: center; padding: 3rem 1rem; }
   .get-started h2 { margin-bottom: 1rem; color: var(--text-muted); }
   .get-started p { margin-bottom: 1.5rem; color: var(--text-muted); }

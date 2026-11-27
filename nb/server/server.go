@@ -1079,10 +1079,24 @@ func (s *Server) handleSecrets(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]interface{}{"secrets": names})
 
 	case http.MethodDelete:
+		var delReq secretRequest
+		if err := json.NewDecoder(r.Body).Decode(&delReq); err != nil || delReq.Name == "" {
+			// No name specified — clear all secrets (backward compat).
+			s.mu.Lock()
+			s.secrets = make(map[string]string)
+			s.mu.Unlock()
+			writeJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
+			return
+		}
 		s.mu.Lock()
-		s.secrets = make(map[string]string)
+		_, existed := s.secrets[delReq.Name]
+		delete(s.secrets, delReq.Name)
 		s.mu.Unlock()
-		writeJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
+		if !existed {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "secret not found: " + delReq.Name})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

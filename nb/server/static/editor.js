@@ -218,7 +218,7 @@ class NotebookEditor {
             const secretsSection = document.createElement("div");
             secretsSection.className = "editor-section";
             secretsSection.id = "section-secrets";
-            secretsSection.appendChild(this.buildSecretPrompt());
+            secretsSection.appendChild(this.buildSecretsSection());
             this.container.appendChild(secretsSection);
             // Diagnostics section (empty placeholder).
             const diagSection = document.createElement("div");
@@ -288,7 +288,7 @@ class NotebookEditor {
         const secretsSection = document.createElement("div");
         secretsSection.className = "editor-section" + (this.activeSection === "secrets" ? " active" : "");
         secretsSection.id = "section-secrets";
-        secretsSection.appendChild(this.buildSecretPrompt());
+        secretsSection.appendChild(this.buildSecretsSection());
         this.container.appendChild(secretsSection);
         // --- Diagnostics section (#299) ---
         const diagSection = document.createElement("div");
@@ -621,13 +621,14 @@ class NotebookEditor {
             // Ignore state fetch errors.
         }
     }
-    // --- Secret prompt ---
-    buildSecretPrompt() {
+    // --- Secrets section ---
+    buildSecretsSection() {
+        const wrapper = document.createElement("div");
+        wrapper.id = "secrets-section";
         const section = document.createElement("section");
         section.className = "block secret-block";
-        section.id = "secret-prompt";
         const heading = document.createElement("h3");
-        heading.textContent = "Set Secret";
+        heading.textContent = "Secrets";
         section.appendChild(heading);
         const desc = document.createElement("p");
         desc.textContent = "Secrets are stored in memory only and never written to disk.";
@@ -637,6 +638,18 @@ class NotebookEditor {
         const status = document.createElement("p");
         status.className = "status";
         section.appendChild(status);
+        // Secret list.
+        const listLabel = document.createElement("label");
+        listLabel.textContent = "Current Secrets";
+        listLabel.style.fontWeight = "600";
+        listLabel.style.fontSize = "0.8rem";
+        listLabel.style.color = "var(--text-muted)";
+        section.appendChild(listLabel);
+        const secretList = document.createElement("ul");
+        secretList.className = "secret-list";
+        secretList.id = "secret-list";
+        section.appendChild(secretList);
+        // Add/Update form.
         const nameField = document.createElement("div");
         nameField.className = "field";
         const nameLabel = document.createElement("label");
@@ -659,16 +672,104 @@ class NotebookEditor {
         valueField.appendChild(valueLabel);
         valueField.appendChild(valueInput);
         section.appendChild(valueField);
+        const btnRow = document.createElement("div");
+        btnRow.className = "btn-row";
         const submitBtn = document.createElement("button");
         submitBtn.type = "button";
         submitBtn.textContent = "Set Secret";
         submitBtn.addEventListener("click", () => {
-            void this.submitSecret(nameInput, valueInput, status);
+            void this.submitSecret(nameInput, valueInput, status, secretList);
         });
-        section.appendChild(submitBtn);
-        return section;
+        btnRow.appendChild(submitBtn);
+        const clearBtn = document.createElement("button");
+        clearBtn.type = "button";
+        clearBtn.textContent = "Clear All";
+        clearBtn.className = "clear-all-btn";
+        clearBtn.addEventListener("click", () => {
+            if (confirm("Clear ALL secrets? This cannot be undone.")) {
+                void this.clearAllSecrets(status, secretList);
+            }
+        });
+        btnRow.appendChild(clearBtn);
+        section.appendChild(btnRow);
+        wrapper.appendChild(section);
+        // Fetch and render the secret list on initial render.
+        void this.refreshSecretList(secretList);
+        return wrapper;
     }
-    async submitSecret(nameInput, valueInput, status) {
+    async refreshSecretList(listEl) {
+        try {
+            const resp = await fetch("/api/secrets");
+            if (!resp.ok)
+                return;
+            const data = await resp.json();
+            const names = data.secrets ?? [];
+            listEl.innerHTML = "";
+            if (names.length === 0) {
+                const li = document.createElement("li");
+                li.textContent = "No secrets set.";
+                li.style.color = "var(--text-muted)";
+                li.style.fontStyle = "italic";
+                listEl.appendChild(li);
+                return;
+            }
+            for (const name of names) {
+                const li = document.createElement("li");
+                const span = document.createElement("span");
+                span.className = "secret-name";
+                span.textContent = name;
+                li.appendChild(span);
+                const delBtn = document.createElement("button");
+                delBtn.type = "button";
+                delBtn.textContent = "Delete";
+                delBtn.className = "delete-secret-btn";
+                delBtn.addEventListener("click", () => {
+                    void this.deleteSecret(name, listEl);
+                });
+                li.appendChild(delBtn);
+                listEl.appendChild(li);
+            }
+        }
+        catch { /* ignore */ }
+    }
+    async deleteSecret(name, listEl) {
+        try {
+            const resp = await fetch("/api/secrets", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name }),
+            });
+            if (!resp.ok) {
+                const err = await resp.json();
+                alert("Error: " + err.error);
+                return;
+            }
+            void this.refreshSecretList(listEl);
+        }
+        catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            alert("Network error: " + msg);
+        }
+    }
+    async clearAllSecrets(status, listEl) {
+        try {
+            const resp = await fetch("/api/secrets", { method: "DELETE" });
+            if (!resp.ok) {
+                status.textContent = "Error clearing secrets.";
+                status.className = "status error";
+                return;
+            }
+            status.textContent = "All secrets cleared.";
+            status.className = "status ok";
+            void this.refreshSecretList(listEl);
+        }
+        catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            status.textContent = "Network error: " + msg;
+            status.className = "status error";
+        }
+    }
+    async submitSecret(nameInput, valueInput, status, listEl) {
         const name = nameInput.value.trim();
         const value = valueInput.value;
         if (!name) {
@@ -694,6 +795,8 @@ class NotebookEditor {
             status.className = "status ok";
             // Clear the value input for security.
             valueInput.value = "";
+            // Refresh the list.
+            void this.refreshSecretList(listEl);
         }
         catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
