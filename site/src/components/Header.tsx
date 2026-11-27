@@ -79,6 +79,25 @@ export function Header(): ReturnType<typeof createElement> {
         'GitHub',
       ),
     ),
+    createElement(
+      'button',
+      {
+        className: 'dark-mode-toggle',
+        'aria-label': 'Toggle dark mode',
+        onClick: () => {
+          const html = document.documentElement;
+          const isDark = html.getAttribute('data-theme') === 'dark';
+          if (isDark) {
+            html.removeAttribute('data-theme');
+            localStorage.setItem('theme', 'light');
+          } else {
+            html.setAttribute('data-theme', 'dark');
+            localStorage.setItem('theme', 'dark');
+          }
+        },
+      },
+      document.documentElement.getAttribute('data-theme') === 'dark' ? '\u2600' : '\u263E',
+    ),
   );
 }
 
