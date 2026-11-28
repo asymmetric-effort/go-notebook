@@ -39,6 +39,9 @@ node_modules/
 # Playwright e2e
 nb/server/e2e/node_modules/
 
+# Editor SPA dependencies
+nb/server/editor/node_modules/
+
 # Docker test environments
 .testenv/
 

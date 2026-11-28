@@ -52,7 +52,7 @@ documentation.
 Cells can have attributes on the info string that control execution and
 data flow. The full info string syntax is:
 
-```
+```text
 go:notebook [name=<id>] [exported(...)] [reads(...)] [writes(...)] [secrets(...)] [data=embedded|live] [timeout=<dur>]
 ```
 
@@ -69,7 +69,7 @@ go:notebook [name=<id>] [exported(...)] [reads(...)] [writes(...)] [secrets(...)
 Example with attributes: a cell named `fetch` with exported fields, a file
 read, a secret, and a 10-second timeout:
 
-```
+```text
 ```go:notebook name=fetch exported(Result string) reads(config.json:embed) secrets(api_key) timeout=10s
 ```
 
