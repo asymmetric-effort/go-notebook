@@ -19,7 +19,7 @@ go install github.com/asymmetric-effort/go-notebook/cmd/gobook@latest
 Verify the installation:
 
 ```bash
-gobook version
+gobook --version
 ```
 
 ## Hello World Example

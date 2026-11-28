@@ -49,29 +49,52 @@ documentation.
 
 ## Cell Attributes
 
-Cells can have attributes that control execution:
+Cells can have attributes on the info string that control execution and
+data flow. The full info string syntax is:
 
-| Attribute | Description |
-| --------- | ----------- |
-| `name` | Names the cell for reference in error messages |
-| `timeout` | Per-cell timeout (e.g., `timeout=30s`) |
-| `skip` | Skip this cell during execution |
-
-Example with attributes: a cell named `fetch` with a 10-second timeout:
-
-```go
-// This cell has a 10-second timeout.
-resp, err := http.Get("https://example.com")
 ```
+go:notebook [name=<id>] [exported(...)] [reads(...)] [writes(...)] [secrets(...)] [data=embedded|live] [timeout=<dur>]
+```
+
+| Attribute | Syntax | Description |
+| --------- | ------ | ----------- |
+| `name` | `name=<identifier>` | Names the cell for reference in error messages and cross-cell access |
+| `exported` | `exported(Field Type, ...)` | Declares fields exported to downstream cells |
+| `reads` | `reads(file:embed, file:runtime)` | Declares files this cell reads, with access mode |
+| `writes` | `writes(file, ...)` | Declares files this cell writes |
+| `secrets` | `secrets(name, ...)` | Declares secrets this cell needs (provided at runtime) |
+| `data` | `data=embedded` or `data=live` | Controls when data is captured (see Data Modes) |
+| `timeout` | `timeout=<duration>` | Per-cell execution timeout (e.g., `timeout=30s`) |
+
+Example with attributes: a cell named `fetch` with exported fields, a file
+read, a secret, and a 10-second timeout:
+
+```
+```go:notebook name=fetch exported(Result string) reads(config.json:embed) secrets(api_key) timeout=10s
+```
+
+### File Read Modes
+
+The `reads()` attribute supports two modes for each file:
+
+| Mode | Syntax | Description |
+| ---- | ------ | ----------- |
+| `embed` | `file:embed` | File contents embedded at build time |
+| `runtime` | `file:runtime` | File read at render time |
 
 ## Data Modes
 
-Cells operate in one of two data modes:
+Cells can specify a data mode that controls when their data is captured:
 
-- **Copy mode** (default) — Each cell receives a deep copy of the shared
-  state. Mutations in one cell do not affect others.
-- **Shared mode** — Cells share a single state. Mutations persist across
-  cells. Use this when cells need to build on each other's work.
+| Mode | Attribute | Description |
+| ---- | --------- | ----------- |
+| None | *(default)* | No special data handling |
+| Embedded | `data=embedded` | Data is captured at build time and baked into the binary |
+| Live | `data=live` | Data is fetched fresh each time the report is rendered |
+
+Use `data=embedded` when data should be frozen at build time (e.g., a
+snapshot of query results). Use `data=live` when the report should fetch
+current data on every render.
 
 ## Supported Output Formats
 
