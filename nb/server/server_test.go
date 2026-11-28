@@ -376,7 +376,7 @@ func TestStaticFileServing(t *testing.T) {
 	path := testNotebook(t)
 	srv := New(path, ":0")
 
-	r := httptest.NewRequest(http.MethodGet, "/static/editor.js", nil)
+	r := httptest.NewRequest(http.MethodGet, "/static/logo.png", nil)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, r)
 
@@ -1954,7 +1954,7 @@ func TestRewriteProseOutOfRangeLines(t *testing.T) {
 }
 
 func TestHandleEditorEmbeddedHTMLNotFound(t *testing.T) {
-	// handleEditor reads static/editor.html which is embedded.
+	// handleEditor reads static/dist/index.html which is embedded.
 	// Verify the endpoint returns 200 with an HTML body (file must be embedded).
 	dir := t.TempDir()
 	notebook := filepath.Join(dir, "test.md")
@@ -1967,7 +1967,7 @@ func TestHandleEditorEmbeddedHTMLNotFound(t *testing.T) {
 
 	// Should be 200 (file is embedded at build time).
 	if w.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200 (editor.html must be embedded)", w.Code)
+		t.Errorf("status = %d, want 200 (static/dist/index.html must be embedded)", w.Code)
 	}
 }
 
@@ -3639,8 +3639,8 @@ func TestDeleteBlockLineNotFound(t *testing.T) {
 }
 
 func TestHandleEditorReturnsHTML(t *testing.T) {
-	// The embedded editor.html always exists, but we can test the method guard
-	// on a HEAD request which still exercises the handler path.
+	// The embedded static/dist/index.html always exists, but we can test the
+	// method guard on a GET request which still exercises the handler path.
 	path := testNotebook(t)
 	s := New(path, "localhost:0")
 	w := httptest.NewRecorder()

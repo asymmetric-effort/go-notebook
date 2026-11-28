@@ -1,4 +1,4 @@
-.PHONY: all clean lint test build release hooks version version/major version/minor version/patch
+.PHONY: all clean lint test build release hooks version version/major version/minor version/patch editor
 
 -include Makefile.d/*.mk
 
@@ -33,3 +33,6 @@ version/minor:
 
 version/patch:
 	go run ./tools/version patch
+
+editor:
+	cd nb/server/editor && bun install --frozen-lockfile && bun run build

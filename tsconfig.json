@@ -23,6 +23,7 @@
 		"vscode",
 		"site",
 		"tests",
-		"nb/server/e2e"
+		"nb/server/e2e",
+		"nb/server/editor"
 	]
 }

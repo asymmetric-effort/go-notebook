@@ -126,7 +126,7 @@ func New(notebookPath, addr string) *Server {
 
 // cspPolicy is the Content-Security-Policy for editor pages.
 // It blocks all remote loads, inline scripts, and object/embed/frame elements.
-const cspPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; frame-src 'none'; base-uri 'self'"
+const cspPolicy = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; frame-src 'none'; base-uri 'self'"
 
 // Handler returns the HTTP handler with CSP middleware for testing.
 func (s *Server) Handler() http.Handler {
@@ -467,7 +467,7 @@ func (s *Server) handleEditor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := staticFiles.ReadFile("static/editor.html")
+	data, err := staticFiles.ReadFile("static/dist/index.html")
 	if err != nil {
 		http.Error(w, "editor not found", http.StatusNotFound)
 		return
