@@ -28,6 +28,40 @@ func TestGenerateMarshalEmpty(t *testing.T) {
 	if !strings.Contains(code, "MarshalBinary") {
 		t.Error("missing MarshalBinary for empty struct")
 	}
+	// Issue #314: empty fields must not declare enc/dec variables.
+	if strings.Contains(code, "enc :=") || strings.Contains(code, "dec :=") {
+		t.Errorf("empty fields should not declare enc/dec variables:\n%s", code)
+	}
+	if !strings.Contains(code, "return nil, nil") {
+		t.Error("MarshalBinary should return nil, nil for empty fields")
+	}
+	if !strings.Contains(code, "return nil") {
+		t.Error("UnmarshalBinary should return nil for empty fields")
+	}
+}
+
+func TestGenerateMarshalOnlyErrField(t *testing.T) {
+	// A single "err" field is filtered out, leaving zero marshalable fields.
+	// Issue #314: must not generate unused enc/dec variables.
+	code := GenerateMarshal("errOnlyCell", []string{"err error"})
+	if strings.Contains(code, "enc :=") || strings.Contains(code, "dec :=") {
+		t.Errorf("err-only fields should not declare enc/dec variables:\n%s", code)
+	}
+	if !strings.Contains(code, "return nil, nil") {
+		t.Error("MarshalBinary should return nil, nil when only field is err")
+	}
+}
+
+func TestGenerateMarshalEmptyNoBannedDecls(t *testing.T) {
+	// Verify that the generated code for empty fields does not contain
+	// any variable declarations that would cause "declared and not used"
+	// compile errors.
+	code := GenerateMarshal("noFieldCell", nil)
+	for _, banned := range []string{"enc :=", "dec :=", "var buf"} {
+		if strings.Contains(code, banned) {
+			t.Errorf("empty-field output must not contain %q to avoid compile errors:\n%s", banned, code)
+		}
+	}
 }
 
 func TestDeepCopyCode(t *testing.T) {
