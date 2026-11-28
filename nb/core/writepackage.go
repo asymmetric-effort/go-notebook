@@ -101,7 +101,7 @@ func assembleSource(gen GenerateResult, notebookPath string) string {
 	seen := make(map[string]bool)
 	fmt.Fprintf(&buf, "import (\n")
 	if hasMarshal {
-		for _, pkg := range []string{"\"bytes\"", "\"encoding/gob\"", "\"fmt\""} {
+		for _, pkg := range []string{"\"bytes\"", "\"encoding/gob\"", "\"fmt\"", "\"os\""} {
 			fmt.Fprintf(&buf, "\t%s\n", pkg)
 			seen[pkg] = true
 		}
@@ -160,7 +160,7 @@ func assembleSource(gen GenerateResult, notebookPath string) string {
 
 	if hasMarshal {
 		// Suppress unused import warnings when no marshal calls happen.
-		fmt.Fprintf(&buf, "var _ = bytes.NewReader\nvar _ = gob.NewEncoder\nvar _ = fmt.Sprintf\n\n")
+		fmt.Fprintf(&buf, "var _ = bytes.NewReader\nvar _ = gob.NewEncoder\nvar _ = fmt.Sprintf\nvar _ = os.Exit\n\n")
 	}
 	if hasEmbedded {
 		fmt.Fprintf(&buf, "var _ = base64.StdEncoding\nvar _ = os.Getenv\n\n")
@@ -363,8 +363,8 @@ func generateBatchMain(gen GenerateResult, notebookPath string) string {
 			}
 
 			fmt.Fprintf(&buf, "\tif %s.err != nil {\n", varName)
-			fmt.Fprintf(&buf, "\t\tnb.NewCellError(%q, 0, %s.err)\n", varName, varName)
-			fmt.Fprintf(&buf, "\t\treturn\n")
+			fmt.Fprintf(&buf, "\t\tfmt.Fprintf(os.Stderr, \"cell %%q failed: %%v\\n\", %q, %s.err)\n", varName, varName)
+			fmt.Fprintf(&buf, "\t\tos.Exit(2)\n")
 			fmt.Fprintf(&buf, "\t}\n")
 			// Deep copy via marshal round-trip to prevent mutation across cells.
 			fmt.Fprintf(&buf, "\t{\n")

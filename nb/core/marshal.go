@@ -22,6 +22,14 @@ func GenerateMarshal(structName string, fields []string) string {
 		}
 	}
 
+	// When there are no marshalable fields, return no-op methods to avoid
+	// generating unused enc/dec variables that cause compile errors.
+	if len(marshalFields) == 0 {
+		fmt.Fprintf(&buf, "func (c %s) MarshalBinary() ([]byte, error) { return nil, nil }\n\n", structName)
+		fmt.Fprintf(&buf, "func (c *%s) UnmarshalBinary(data []byte) error { return nil }\n", structName)
+		return buf.String()
+	}
+
 	// MarshalBinary method.
 	fmt.Fprintf(&buf, "func (c %s) MarshalBinary() ([]byte, error) {\n", structName)
 	fmt.Fprintf(&buf, "\tvar buf bytes.Buffer\n")
