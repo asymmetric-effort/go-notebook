@@ -652,22 +652,28 @@ class NotebookEditor {
         // Add/Update form.
         const nameField = document.createElement("div");
         nameField.className = "field";
+        const nameId = "secret-name-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
         const nameLabel = document.createElement("label");
         nameLabel.textContent = "Secret Name";
+        nameLabel.setAttribute("for", nameId);
         const nameInput = document.createElement("input");
         nameInput.type = "text";
         nameInput.name = "secret-name";
+        nameInput.id = nameId;
         nameInput.placeholder = "e.g., api_key";
         nameField.appendChild(nameLabel);
         nameField.appendChild(nameInput);
         section.appendChild(nameField);
         const valueField = document.createElement("div");
         valueField.className = "field";
+        const valueId = "secret-value-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
         const valueLabel = document.createElement("label");
         valueLabel.textContent = "Secret Value (masked)";
+        valueLabel.setAttribute("for", valueId);
         const valueInput = document.createElement("input");
         valueInput.type = "password";
         valueInput.name = "secret-value";
+        valueInput.id = valueId;
         valueInput.autocomplete = "off";
         valueField.appendChild(valueLabel);
         valueField.appendChild(valueInput);
@@ -816,8 +822,15 @@ class NotebookEditor {
         const status = document.createElement("p");
         status.className = "status";
         section.appendChild(status);
+        const proseId = "prose-body-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+        const proseLabel = document.createElement("label");
+        proseLabel.textContent = "Prose Body";
+        proseLabel.setAttribute("for", proseId);
+        proseLabel.className = "sr-only";
+        section.appendChild(proseLabel);
         const ta = document.createElement("textarea");
         ta.name = "prose-body";
+        ta.id = proseId;
         ta.value = block.body;
         ta.rows = Math.max(3, block.body.split("\n").length + 1);
         ta.className = "prose-editor";
@@ -1133,11 +1146,14 @@ class NotebookEditor {
     labeledInput(label, name, value) {
         const div = document.createElement("div");
         div.className = "field";
+        const id = name + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
         const lbl = document.createElement("label");
         lbl.textContent = label;
+        lbl.setAttribute("for", id);
         const input = document.createElement("input");
         input.type = "text";
         input.name = name;
+        input.id = id;
         input.value = value ?? "";
         div.appendChild(lbl);
         div.appendChild(input);
@@ -1146,10 +1162,13 @@ class NotebookEditor {
     labeledTextarea(label, name, value, monospace) {
         const div = document.createElement("div");
         div.className = "field";
+        const id = name + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
         const lbl = document.createElement("label");
         lbl.textContent = label;
+        lbl.setAttribute("for", id);
         const ta = document.createElement("textarea");
         ta.name = name;
+        ta.id = id;
         ta.value = value ?? "";
         ta.rows = Math.max(4, (value ?? "").split("\n").length + 1);
         if (monospace) {
@@ -1162,10 +1181,13 @@ class NotebookEditor {
     labeledSelect(label, name, options, selected) {
         const div = document.createElement("div");
         div.className = "field";
+        const id = name + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
         const lbl = document.createElement("label");
         lbl.textContent = label;
+        lbl.setAttribute("for", id);
         const sel = document.createElement("select");
         sel.name = name;
+        sel.id = id;
         for (const opt of options) {
             const o = document.createElement("option");
             o.value = opt;
